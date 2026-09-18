@@ -138,6 +138,18 @@ If you need an environment detail while building, invent a placeholder (for exam
 
 ---
 
+## Neural Workflow
+
+This repository operates under a controlled AI coding workflow called **Neural Workflow** featuring deterministic state progression and feedback loops:
+
+- **Normal Progression:**
+  `TODO` → `PLANNING` → `EXPLORING` → `IN_PROGRESS` → `IMPLEMENTED` → `TESTING` → `PASSED` → `REVIEW` → `SHIPPED`
+
+- **Failure & Debugging Loop:**
+  `TESTING` → `FAILED` → `BUG_FIX` → `TESTING` (up to a maximum of 3 debug cycles before transitioning to `BLOCKED`).
+
+---
+
 ## Status
 
 Blueprint only. No implementation, no deployment, no approval. Treat every statement here as a design intent to be verified as you build.
