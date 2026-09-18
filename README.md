@@ -107,7 +107,7 @@ flowchart LR
 
 | Layer | Choice |
 |---|---|
-| Backend | Python + FastAPI, modular monolith, one deployable |
+| Backend | Go lang + FastAPI, modular monolith, one deployable |
 | Data access | SQLAlchemy 2.x async, Alembic migrations |
 | Validation | Pydantic v2 |
 | Database | PostgreSQL — single source of truth |
