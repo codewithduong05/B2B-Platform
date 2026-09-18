@@ -1,0 +1,24 @@
+version: "2"
+sql:
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "internal/database/queries/catalog"
+    gen:
+      go:
+        package: "catalog"
+        out: "internal/database/queries/catalog"
+        sql_package: "pgx/v5"
+        emit_json_tags: true
+        emit_prepared_queries: false
+        emit_interface: true
+        emit_exact_table_names: false
+        emit_empty_slices: true
+        overrides:
+          - db_type: "uuid"
+            go_type: "github.com/google/uuid.UUID"
+          - db_type: "timestamptz"
+            go_type: "time.Time"
+          - db_type: "numeric"
+            go_type: "string"
+          - db_type: "bigserial"
+            go_type: "int64"
