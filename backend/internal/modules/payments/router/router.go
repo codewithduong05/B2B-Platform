@@ -51,6 +51,7 @@ func (rt *Router) RegisterRoutes(authMiddleware, adminMiddleware func(http.Handl
 		r.Get("/methods", rt.handleListMethods)
 		r.Post("/intents", rt.handleCreateIntent)
 		r.Get("/intents/{code}", rt.handleGetIntent)
+		r.Get("/statements", rt.handleBuyerStatement)
 	})
 
 	rt.router.Route("/admin/payments", func(r chi.Router) {
@@ -67,6 +68,7 @@ func (rt *Router) RegisterRoutes(authMiddleware, adminMiddleware func(http.Handl
 		r.Post("/refunds/{id}/approve", rt.handleApproveRefund)
 		r.Post("/refunds/{id}/reject", rt.handleRejectRefund)
 		r.Get("/reconciliation", rt.handleReconciliation)
+		r.Get("/statements", rt.handleAdminStatements)
 		r.Get("/credit/{buyer_id}", rt.handleGetCredit)
 		r.Put("/credit/{buyer_id}", rt.handleSetCredit)
 	})
@@ -135,8 +137,7 @@ func (rt *Router) handleCreateIntent(w http.ResponseWriter, r *http.Request) {
 	rt.writeJSON(w, http.StatusCreated, resp)
 }
 
-func (rt *Router) handleGetIntent(w http.ResponseWriter, r *http.Request) {
-	code := chi.URLParam(r, "code")
+func (rt *Router) handleGetIntent(w http.ResponseWriter, r *http.Request) {	code := chi.URLParam(r, "code")
 	if code == "" {
 		rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "intent code is required")
 		return
@@ -420,4 +421,45 @@ func (rt *Router) handleSetCredit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rt.writeJSON(w, http.StatusOK, resp)
+}
+
+func (rt *Router) handleBuyerStatement(w http.ResponseWriter, r *http.Request) {
+	period := r.URL.Query().Get("period")
+	if period == "" {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "period YYYY-MM is required")
+		return
+	}
+	stmt, err := rt.service.BuyerStatement(r.Context(), principalID(r), period)
+	if err != nil {
+		if err == service.ErrInvalidIntent {
+			rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "period must be YYYY-MM")
+			return
+		}
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	rt.writeJSON(w, http.StatusOK, stmt)
+}
+
+func (rt *Router) handleAdminStatements(w http.ResponseWriter, r *http.Request) {
+	buyerID, err := strconv.ParseInt(r.URL.Query().Get("buyer_id"), 10, 64)
+	if err != nil || buyerID <= 0 {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "buyer_id is required")
+		return
+	}
+	period := r.URL.Query().Get("period")
+	if period == "" {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "period YYYY-MM is required")
+		return
+	}
+	stmt, err := rt.service.AdminStatement(r.Context(), buyerID, period)
+	if err != nil {
+		if err == service.ErrInvalidIntent {
+			rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "bad buyer_id or period")
+			return
+		}
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	rt.writeJSON(w, http.StatusOK, stmt)
 }

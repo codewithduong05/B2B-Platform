@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/atlas-platform/backend/internal/modules/commerce/repository"
 	"github.com/atlas-platform/backend/internal/modules/commerce/schema"
@@ -354,4 +355,184 @@ func (rt *Router) handleAdminVoidInvoice(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	rt.writeJSON(w, http.StatusOK, resp)
+}
+
+func (rt *Router) handleAdminReissueInvoice(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseAdminID(w, r, rt)
+	if !ok {
+		return
+	}
+	resp, err := rt.service.ReissueInvoice(r.Context(), staffActor(r), id)
+	if err != nil {
+		switch err {
+		case service.ErrInvoiceNotFound:
+			rt.writeError(w, r, http.StatusNotFound, "invoice_not_found", "invoice not found")
+		case service.ErrInvalidTransition:
+			rt.writeError(w, r, http.StatusUnprocessableEntity, "invalid_transition", "only draft or issued invoices can be reissued")
+		default:
+			rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		}
+		return
+	}
+	w.Header().Set("Location", "/api/v1/admin/invoices")
+	rt.writeJSON(w, http.StatusCreated, resp)
+}
+
+func (rt *Router) writeReturnError(w http.ResponseWriter, r *http.Request, err error) {
+	switch err {
+	case service.ErrReturnNotFound:
+		rt.writeError(w, r, http.StatusNotFound, "return_not_found", "return request not found")
+	case service.ErrReturnState:
+		rt.writeError(w, r, http.StatusUnprocessableEntity, "return_state", "return is not actionable in its state")
+	case service.ErrReturnQuantity:
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_quantity", "invalid return quantity")
+	case service.ErrOrderNotFound:
+		rt.writeError(w, r, http.StatusNotFound, "order_not_found", "order not found")
+	case service.ErrInvalidTransition:
+		rt.writeError(w, r, http.StatusUnprocessableEntity, "invalid_transition", "order state forbids this action")
+	case service.ErrInvalidQuantity:
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "amount and reason are required")
+	case service.ErrCreditExceeds:
+		rt.writeError(w, r, http.StatusUnprocessableEntity, "credit_exceeds_balance", "credit exceeds outstanding balance")
+	case service.ErrCreditNotFound:
+		rt.writeError(w, r, http.StatusNotFound, "credit_not_found", "credit note not found")
+	default:
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+	}
+}
+
+func (rt *Router) handleAdminListReturns(w http.ResponseWriter, r *http.Request) {
+	page, limit, offset := parsePage(r)
+	var orderID int64
+	if v := r.URL.Query().Get("order_id"); v != "" {
+		if parsed, err := strconv.ParseInt(v, 10, 64); err == nil && parsed > 0 {
+			orderID = parsed
+		}
+	}
+	returns, err := rt.service.ListReturns(r.Context(), orderID, 0, limit, offset)
+	if err != nil {
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	total := len(returns)
+	rt.writeEnvelope(w, returns, page, limit, total)
+}
+
+func (rt *Router) handleAdminApproveReturn(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseAdminID(w, r, rt)
+	if !ok {
+		return
+	}
+	resp, err := rt.service.ApproveReturn(r.Context(), staffActor(r), id)
+	if err != nil {
+		rt.writeReturnError(w, r, err)
+		return
+	}
+	rt.writeJSON(w, http.StatusOK, resp)
+}
+
+func (rt *Router) handleAdminRejectReturn(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseAdminID(w, r, rt)
+	if !ok {
+		return
+	}
+	var req schema.RejectReturnRequest
+	if !rt.decodeAdminBody(w, r, &req) {
+		return
+	}
+	resp, err := rt.service.RejectReturn(r.Context(), staffActor(r), id, req.Reason)
+	if err != nil {
+		rt.writeReturnError(w, r, err)
+		return
+	}
+	rt.writeJSON(w, http.StatusOK, resp)
+}
+
+func (rt *Router) handleAdminCompleteReturn(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseAdminID(w, r, rt)
+	if !ok {
+		return
+	}
+	resp, err := rt.service.CompleteReturn(r.Context(), staffActor(r), id)
+	if err != nil {
+		rt.writeReturnError(w, r, err)
+		return
+	}
+	rt.writeJSON(w, http.StatusOK, resp)
+}
+
+func (rt *Router) handleAdminListCreditNotes(w http.ResponseWriter, r *http.Request) {
+	page, limit, _ := parsePage(r)
+	var orderID int64
+	if v := r.URL.Query().Get("order_id"); v != "" {
+		if parsed, err := strconv.ParseInt(v, 10, 64); err == nil && parsed > 0 {
+			orderID = parsed
+		}
+	}
+	notes, err := rt.service.ListCreditNotes(r.Context(), orderID)
+	if err != nil {
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	rt.writeEnvelope(w, notes, page, limit, len(notes))
+}
+
+func (rt *Router) handleAdminCreateCredit(w http.ResponseWriter, r *http.Request) {
+	var req schema.CreateCreditRequest
+	if !rt.decodeAdminBody(w, r, &req) {
+		return
+	}
+	if req.OrderID <= 0 {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "order_id is required")
+		return
+	}
+	notes, err := rt.service.CreateManualCredit(r.Context(), staffActor(r), req.OrderID, req.AmountMinor, req.Reason)
+	if err != nil {
+		rt.writeReturnError(w, r, err)
+		return
+	}
+	w.Header().Set("Location", "/api/v1/admin/credit-notes")
+	rt.writeJSON(w, http.StatusCreated, notes)
+}
+
+func (rt *Router) handleAdminVoidCredit(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseAdminID(w, r, rt)
+	if !ok {
+		return
+	}
+	resp, err := rt.service.VoidCreditNote(r.Context(), staffActor(r), id)
+	if err != nil {
+		rt.writeReturnError(w, r, err)
+		return
+	}
+	rt.writeJSON(w, http.StatusOK, resp)
+}
+
+func (rt *Router) handleAdminAgedDebt(w http.ResponseWriter, r *http.Request) {
+	var buyerID int64
+	if v := r.URL.Query().Get("buyer_id"); v != "" {
+		if parsed, err := strconv.ParseInt(v, 10, 64); err == nil && parsed > 0 {
+			buyerID = parsed
+		}
+	}
+	rows, err := rt.service.AgedDebt(r.Context(), buyerID, time.Now())
+	if err != nil {
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	buckets := map[string]int64{"current": 0, "31-60": 0, "61-90": 0, "90+": 0}
+	var total int64
+	items := make([]map[string]interface{}, 0, len(rows))
+	for _, row := range rows {
+		buckets[row.Bucket] += row.Balance
+		total += row.Balance
+		items = append(items, map[string]interface{}{
+			"buyer_id": row.BuyerID, "order_id": row.OrderID, "order_code": row.OrderCode,
+			"invoice_code": row.InvoiceCode, "balance_minor": row.Balance,
+			"issued_at": row.IssuedAt, "days_old": row.DaysOld, "bucket": row.Bucket,
+		})
+	}
+	rt.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"buckets": buckets, "total_minor": total, "items": items,
+	})
 }

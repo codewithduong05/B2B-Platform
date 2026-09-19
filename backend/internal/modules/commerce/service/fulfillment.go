@@ -405,6 +405,7 @@ func toInvoiceResponse(inv repository.Invoice) *schema.InvoiceResponse {
 		TotalMinor:    inv.TotalMinor,
 		BalanceMinor:  inv.BalanceMinor,
 		Currency:      inv.Currency,
+		ReplacesCode:  inv.ReplacesCode,
 		CreatedAt:     inv.CreatedAt,
 		UpdatedAt:     inv.UpdatedAt,
 	}

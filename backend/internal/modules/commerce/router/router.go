@@ -54,6 +54,9 @@ func (rt *Router) RegisterRoutes(authMiddleware, adminMiddleware func(http.Handl
 		r.Post("/checkout", rt.handleCheckout)
 		r.Get("/orders/me", rt.handleListOrders)
 		r.Get("/orders/me/{code}", rt.handleGetOrder)
+		r.Post("/orders/me/{code}/returns", rt.handleRequestReturn)
+		r.Get("/invoices/me", rt.handleListInvoicesMe)
+		r.Get("/invoices/me/{code}", rt.handleGetInvoiceMe)
 	})
 
 	// Staff surface (05: /admin/* with integer IDs). Authenticated first, then
@@ -79,6 +82,15 @@ func (rt *Router) RegisterRoutes(authMiddleware, adminMiddleware func(http.Handl
 		r.Post("/invoices", rt.handleAdminCreateInvoice)
 		r.Post("/invoices/{id}/issue", rt.handleAdminIssueInvoice)
 		r.Post("/invoices/{id}/void", rt.handleAdminVoidInvoice)
+		r.Post("/invoices/{id}/reissue", rt.handleAdminReissueInvoice)
+		r.Get("/returns", rt.handleAdminListReturns)
+		r.Post("/returns/{id}/approve", rt.handleAdminApproveReturn)
+		r.Post("/returns/{id}/reject", rt.handleAdminRejectReturn)
+		r.Post("/returns/{id}/complete", rt.handleAdminCompleteReturn)
+		r.Get("/credit-notes", rt.handleAdminListCreditNotes)
+		r.Post("/credit-notes", rt.handleAdminCreateCredit)
+		r.Post("/credit-notes/{id}/void", rt.handleAdminVoidCredit)
+		r.Get("/finance/aged-debt", rt.handleAdminAgedDebt)
 	})
 }
 
@@ -311,6 +323,77 @@ func (rt *Router) handleGetOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rt.writeJSON(w, http.StatusOK, order)
+}
+
+func buyerIDOf(r *http.Request) int64 {
+	if id := PrincipalIDFromContext(r.Context()); id != 0 {
+		return id
+	}
+	return 1
+}
+
+func (rt *Router) handleRequestReturn(w http.ResponseWriter, r *http.Request) {
+	buyerID := buyerIDOf(r)
+	code := chi.URLParam(r, "code")
+	if code == "" {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "order code is required")
+		return
+	}
+	var req schema.RequestReturnRequest
+	defer r.Body.Close()
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_body", "invalid request body")
+		return
+	}
+	var items []service.ReturnLineInput
+	for _, l := range req.Lines {
+		items = append(items, service.ReturnLineInput{OrderLineID: l.OrderLineID, Quantity: l.Quantity})
+	}
+	resp, err := rt.service.RequestReturn(r.Context(), buyerID, code, items, req.Reason)
+	if err != nil {
+		switch err {
+		case service.ErrOrderNotFound:
+			rt.writeError(w, r, http.StatusNotFound, "order_not_found", "order not found")
+		case service.ErrReturnState:
+			rt.writeError(w, r, http.StatusUnprocessableEntity, "return_state", "order cannot be returned in its state")
+		case service.ErrReturnQuantity, service.ErrInvalidQuantity:
+			rt.writeError(w, r, http.StatusBadRequest, "invalid_quantity", "invalid return quantity")
+		case service.ErrCartLineNotFound:
+			rt.writeError(w, r, http.StatusNotFound, "order_line_not_found", "order line not found")
+		default:
+			rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		}
+		return
+	}
+	w.Header().Set("Location", "/api/v1/commerce/orders/me/"+code)
+	rt.writeJSON(w, http.StatusCreated, resp)
+}
+
+func (rt *Router) handleListInvoicesMe(w http.ResponseWriter, r *http.Request) {
+	invoices, err := rt.service.ListInvoicesMe(r.Context(), buyerIDOf(r))
+	if err != nil {
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	rt.writeJSON(w, http.StatusOK, invoices)
+}
+
+func (rt *Router) handleGetInvoiceMe(w http.ResponseWriter, r *http.Request) {
+	code := chi.URLParam(r, "code")
+	if code == "" {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "invoice code is required")
+		return
+	}
+	inv, err := rt.service.GetInvoiceMeByCode(r.Context(), buyerIDOf(r), code)
+	if err != nil {
+		if err == service.ErrInvoiceNotFound {
+			rt.writeError(w, r, http.StatusNotFound, "invoice_not_found", "invoice not found")
+			return
+		}
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	rt.writeJSON(w, http.StatusOK, inv)
 }
 
 func (rt *Router) decodeBody(r *http.Request, dest interface{}) error {

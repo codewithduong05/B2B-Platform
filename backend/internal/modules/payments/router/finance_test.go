@@ -495,8 +495,7 @@ func TestReconciliation_Buckets(t *testing.T) {
 	_ = orderCode
 }
 
-func TestCredit_AccountAndCheckoutGate(t *testing.T) {
-	env := webhookEnv(t, 0, map[int64]bool{})
+func TestCredit_AccountAndCheckoutGate(t *testing.T) {	env := webhookEnv(t, 0, map[int64]bool{})
 	buyerID := payBuyer(t, env)
 	staff := map[int64]bool{888002: true}
 	buyerEnv := setupPayEnv(t, buyerID, staff)
@@ -584,4 +583,79 @@ func TestCredit_AccountAndCheckoutGate(t *testing.T) {
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("missing credit: expected 404, got %d", resp.StatusCode)
 	}
+}
+
+func TestStatements_BuyerAndAdmin(t *testing.T) {
+	env := webhookEnv(t, 0, map[int64]bool{})
+	buyerID := payBuyer(t, env)
+	staff := map[int64]bool{888004: true}
+	buyerEnv := setupPayEnv(t, buyerID, staff)
+	staffEnv := setupPayEnv(t, 888004, staff)
+	orderCode, intentCode, oid := webhookIntentFixture(t, env, buyerEnv, buyerEnv, "st-1", "st-co-1", 2)
+	payIssueInvoiceForRefund(t, env, staffEnv, oid)
+	completeIntent(t, staffEnv, intentCode)
+
+	period := time.Now().UTC().Format("2006-01")
+
+	// Buyer statement: invoiced 3000, paid 3000, closing 0.
+	resp, body := payDo(t, buyerEnv, http.MethodGet, "/api/v1/payments/statements?period="+period, "", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("buyer statement: %d: %s", resp.StatusCode, string(body))
+	}
+	var stmt struct {
+		BuyerID      int64 `json:"buyer_id"`
+		OpeningMinor int64 `json:"opening_minor"`
+		InvoicedMinor int64 `json:"invoiced_minor"`
+		PaidMinor    int64 `json:"paid_minor"`
+		ClosingMinor int64 `json:"closing_minor"`
+		Lines        []struct {
+			Kind   string `json:"kind"`
+			Amount int64  `json:"amount_minor"`
+		} `json:"lines"`
+	}
+	_ = json.Unmarshal(body, &stmt)
+	if stmt.BuyerID != buyerID || stmt.InvoicedMinor != 3000 || stmt.PaidMinor != 3000 || stmt.ClosingMinor != 0 {
+		t.Errorf("unexpected statement: %+v", stmt)
+	}
+	kinds := map[string]bool{}
+	for _, l := range stmt.Lines {
+		kinds[l.Kind] = true
+	}
+	if !kinds["invoice"] || !kinds["payment"] {
+		t.Errorf("expected invoice+payment lines: %+v", stmt.Lines)
+	}
+
+	// Admin statement for the buyer matches.
+	resp, body = payDo(t, staffEnv, http.MethodGet,
+		fmt.Sprintf("/api/v1/admin/payments/statements?buyer_id=%d&period=%s", buyerID, period), "", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("admin statement: %d: %s", resp.StatusCode, string(body))
+	}
+	var adminStmt struct {
+		ClosingMinor int64 `json:"closing_minor"`
+	}
+	_ = json.Unmarshal(body, &adminStmt)
+	if adminStmt.ClosingMinor != 0 {
+		t.Errorf("admin closing mismatch: %+v", adminStmt)
+	}
+
+	// Malformed period → 400 on both surfaces.
+	resp, _ = payDo(t, buyerEnv, http.MethodGet, "/api/v1/payments/statements?period=not-a-period", "", nil)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("bad period buyer: expected 400, got %d", resp.StatusCode)
+	}
+	resp, _ = payDo(t, staffEnv, http.MethodGet,
+		fmt.Sprintf("/api/v1/admin/payments/statements?buyer_id=%d&period=%s", buyerID, "xx"), "", nil)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("bad period admin: expected 400, got %d", resp.StatusCode)
+	}
+
+	// Buyer cannot read admin statements → 403.
+	resp, _ = payDo(t, buyerEnv, http.MethodGet,
+		fmt.Sprintf("/api/v1/admin/payments/statements?buyer_id=%d&period=%s", buyerID, period), "", nil)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("buyer admin statement: expected 403, got %d", resp.StatusCode)
+	}
+	_ = orderCode
+	_ = oid
 }

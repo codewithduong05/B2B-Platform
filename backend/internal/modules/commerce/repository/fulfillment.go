@@ -39,6 +39,7 @@ type Invoice struct {
 	Currency      string
 	Status        string
 	IssuedAt      *time.Time
+	ReplacesCode  *string
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }
@@ -228,7 +229,8 @@ func (r *CommerceRepository) GetShipmentByIDForUpdate(ctx context.Context, id in
 	return s, err
 }
 
-func (r *CommerceRepository) GetShipmentsByOrder(ctx context.Context, orderID int64) ([]Shipment, error) {	rows, err := r.conn().Query(ctx, `
+func (r *CommerceRepository) GetShipmentsByOrder(ctx context.Context, orderID int64) ([]Shipment, error) {
+	rows, err := r.conn().Query(ctx, `
 		SELECT id, code, order_id, carrier, tracking_code, status, created_at, updated_at
 		FROM commerce.shipment
 		WHERE order_id = $1 AND deleted_at IS NULL
@@ -319,21 +321,21 @@ func (r *CommerceRepository) CreateInvoice(ctx context.Context, code string, ord
 	err := r.conn().QueryRow(ctx, `
 		INSERT INTO commerce.invoice (code, order_id, subtotal_minor, total_minor, balance_minor, currency, status)
 		VALUES ($1, $2, $3, $4, $4, $5, 'draft')
-		RETURNING id, code, order_id, subtotal_minor, total_minor, balance_minor, currency, status, issued_at, created_at, updated_at
+		RETURNING id, code, order_id, subtotal_minor, total_minor, balance_minor, currency, status, issued_at, replaces_code, created_at, updated_at
 	`, code, orderID, subtotalMinor, totalMinor, currency).Scan(
 		&inv.ID, &inv.Code, &inv.OrderID, &inv.SubtotalMinor, &inv.TotalMinor,
-		&inv.BalanceMinor, &inv.Currency, &inv.Status, &inv.IssuedAt, &inv.CreatedAt, &inv.UpdatedAt)
+		&inv.BalanceMinor, &inv.Currency, &inv.Status, &inv.IssuedAt, &inv.ReplacesCode, &inv.CreatedAt, &inv.UpdatedAt)
 	return inv, err
 }
 
 func (r *CommerceRepository) GetInvoiceByID(ctx context.Context, id int64) (Invoice, error) {
 	var inv Invoice
 	err := r.conn().QueryRow(ctx, `
-		SELECT id, code, order_id, subtotal_minor, total_minor, balance_minor, currency, status, issued_at, created_at, updated_at
+		SELECT id, code, order_id, subtotal_minor, total_minor, balance_minor, currency, status, issued_at, replaces_code, created_at, updated_at
 		FROM commerce.invoice
 		WHERE id = $1 AND deleted_at IS NULL
 	`, id).Scan(&inv.ID, &inv.Code, &inv.OrderID, &inv.SubtotalMinor, &inv.TotalMinor,
-		&inv.BalanceMinor, &inv.Currency, &inv.Status, &inv.IssuedAt, &inv.CreatedAt, &inv.UpdatedAt)
+		&inv.BalanceMinor, &inv.Currency, &inv.Status, &inv.IssuedAt, &inv.ReplacesCode, &inv.CreatedAt, &inv.UpdatedAt)
 	return inv, err
 }
 
@@ -353,7 +355,7 @@ func (r *CommerceRepository) ListInvoicesForUpdate(ctx context.Context, orderID 
 
 func (r *CommerceRepository) listInvoices(ctx context.Context, orderID int64, limit, offset int, forUpdate bool) ([]Invoice, error) {
 	query := `
-		SELECT id, code, order_id, subtotal_minor, total_minor, balance_minor, currency, status, issued_at, created_at, updated_at
+		SELECT id, code, order_id, subtotal_minor, total_minor, balance_minor, currency, status, issued_at, replaces_code, created_at, updated_at
 		FROM commerce.invoice
 		WHERE deleted_at IS NULL
 	`
@@ -384,7 +386,7 @@ func (r *CommerceRepository) listInvoices(ctx context.Context, orderID int64, li
 	for rows.Next() {
 		var inv Invoice
 		if err := rows.Scan(&inv.ID, &inv.Code, &inv.OrderID, &inv.SubtotalMinor, &inv.TotalMinor,
-			&inv.BalanceMinor, &inv.Currency, &inv.Status, &inv.IssuedAt, &inv.CreatedAt, &inv.UpdatedAt); err != nil {
+			&inv.BalanceMinor, &inv.Currency, &inv.Status, &inv.IssuedAt, &inv.ReplacesCode, &inv.CreatedAt, &inv.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, inv)
@@ -400,9 +402,24 @@ func (r *CommerceRepository) UpdateInvoiceStatus(ctx context.Context, id int64, 
 		    issued_at = CASE WHEN $2::varchar = 'issued' THEN COALESCE(issued_at, NOW()) ELSE issued_at END,
 		    updated_at = NOW()
 		WHERE id = $1 AND deleted_at IS NULL
-		RETURNING id, code, order_id, subtotal_minor, total_minor, balance_minor, currency, status, issued_at, created_at, updated_at
+		RETURNING id, code, order_id, subtotal_minor, total_minor, balance_minor, currency, status, issued_at, replaces_code, created_at, updated_at
 	`, id, status).Scan(&inv.ID, &inv.Code, &inv.OrderID, &inv.SubtotalMinor, &inv.TotalMinor,
-		&inv.BalanceMinor, &inv.Currency, &inv.Status, &inv.IssuedAt, &inv.CreatedAt, &inv.UpdatedAt)
+		&inv.BalanceMinor, &inv.Currency, &inv.Status, &inv.IssuedAt, &inv.ReplacesCode, &inv.CreatedAt, &inv.UpdatedAt)
+	return inv, err
+}
+
+// DecrementInvoiceBalance reduces one invoice's balance (payments and
+// credit notes share this primitive). Never below zero by construction of
+// callers (takes are capped at the locked balance); the CHECK is backstop.
+func (r *CommerceRepository) DecrementInvoiceBalance(ctx context.Context, id, amountMinor int64) (Invoice, error) {
+	var inv Invoice
+	err := r.conn().QueryRow(ctx, `
+		UPDATE commerce.invoice
+		SET balance_minor = balance_minor - $2, updated_at = NOW()
+		WHERE id = $1 AND deleted_at IS NULL
+		RETURNING id, code, order_id, subtotal_minor, total_minor, balance_minor, currency, status, issued_at, replaces_code, created_at, updated_at
+	`, id, amountMinor).Scan(&inv.ID, &inv.Code, &inv.OrderID, &inv.SubtotalMinor, &inv.TotalMinor,
+		&inv.BalanceMinor, &inv.Currency, &inv.Status, &inv.IssuedAt, &inv.ReplacesCode, &inv.CreatedAt, &inv.UpdatedAt)
 	return inv, err
 }
 
@@ -414,9 +431,9 @@ func (r *CommerceRepository) RestoreInvoiceBalance(ctx context.Context, id, amou
 		UPDATE commerce.invoice
 		SET balance_minor = LEAST(total_minor, balance_minor + $2), updated_at = NOW()
 		WHERE id = $1 AND deleted_at IS NULL
-		RETURNING id, code, order_id, subtotal_minor, total_minor, balance_minor, currency, status, issued_at, created_at, updated_at
+		RETURNING id, code, order_id, subtotal_minor, total_minor, balance_minor, currency, status, issued_at, replaces_code, created_at, updated_at
 	`, id, amountMinor).Scan(&inv.ID, &inv.Code, &inv.OrderID, &inv.SubtotalMinor, &inv.TotalMinor,
-		&inv.BalanceMinor, &inv.Currency, &inv.Status, &inv.IssuedAt, &inv.CreatedAt, &inv.UpdatedAt)
+		&inv.BalanceMinor, &inv.Currency, &inv.Status, &inv.IssuedAt, &inv.ReplacesCode, &inv.CreatedAt, &inv.UpdatedAt)
 	return inv, err
 }
 
@@ -451,6 +468,48 @@ func (r *CommerceRepository) ApplyInvoicePayment(ctx context.Context, orderID, a
 		remaining -= apply
 	}
 	return remaining, nil
+}
+
+// AgedDebtRow is one unpaid issued-invoice balance.
+type AgedDebtRow struct {
+	BuyerID     int64
+	OrderID     int64
+	OrderCode   string
+	InvoiceCode string
+	Balance     int64
+	IssuedAt    time.Time
+}
+
+// AgedDebtRows lists unpaid issued-invoice balances, optionally per buyer.
+func (r *CommerceRepository) AgedDebtRows(ctx context.Context, buyerID int64) ([]AgedDebtRow, error) {
+	query := `
+		SELECT o.buyer_id, o.id, o.code, i.code, i.balance_minor, i.issued_at
+		FROM commerce.invoice i
+		JOIN commerce."order" o ON o.id = i.order_id
+		WHERE i.status = 'issued' AND i.balance_minor > 0 AND i.deleted_at IS NULL
+		  AND o.deleted_at IS NULL
+	`
+	args := []any{}
+	if buyerID > 0 {
+		args = append(args, buyerID)
+		query += ` AND o.buyer_id = $1`
+	}
+	query += ` ORDER BY i.issued_at ASC`
+	rows, err := r.conn().Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []AgedDebtRow
+	for rows.Next() {
+		var row AgedDebtRow
+		if err := rows.Scan(&row.BuyerID, &row.OrderID, &row.OrderCode, &row.InvoiceCode, &row.Balance, &row.IssuedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
 }
 
 // ListShipments lists shipments, optionally filtered by order.

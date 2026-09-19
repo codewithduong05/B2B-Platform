@@ -169,10 +169,63 @@ type InvoiceResponse struct {
 	BalanceMinor  int64      `json:"balance_minor"`
 	Currency      string     `json:"currency"`
 	IssuedAt      *time.Time `json:"issued_at,omitempty"`
+	ReplacesCode  *string    `json:"replaces_code,omitempty"`
 	CreatedAt     time.Time  `json:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at"`
 }
 
 type CreateInvoiceRequest struct {
 	OrderID int64 `json:"order_id"`
+}
+
+type ReturnLineInput struct {
+	OrderLineID int64 `json:"order_line_id"`
+	Quantity    int   `json:"quantity"`
+}
+
+type RequestReturnRequest struct {
+	Lines  []ReturnLineInput `json:"lines"`
+	Reason string            `json:"reason"`
+}
+
+type ReturnLineResponse struct {
+	OrderLineID int64 `json:"order_line_id"`
+	Quantity    int   `json:"quantity"`
+}
+
+type ReturnResponse struct {
+	Code        string               `json:"code"`
+	OrderID     int64                `json:"order_id"`
+	Reason      string               `json:"reason"`
+	Status      string               `json:"status"`
+	RequestedBy *int64               `json:"requested_by,omitempty"`
+	DecidedBy   *int64               `json:"decided_by,omitempty"`
+	Lines       []ReturnLineResponse `json:"lines"`
+	CreatedAt   time.Time            `json:"created_at"`
+	UpdatedAt   time.Time            `json:"updated_at"`
+}
+
+type RejectReturnRequest struct {
+	Reason string `json:"reason,omitempty"`
+}
+
+type CreditNoteResponse struct {
+	Code        string    `json:"code"`
+	BatchCode   string    `json:"batch_code"`
+	OrderID     int64     `json:"order_id"`
+	InvoiceID   *int64    `json:"invoice_id,omitempty"`
+	ReturnID    *int64    `json:"return_id,omitempty"`
+	AmountMinor int64     `json:"amount_minor"`
+	Currency    string    `json:"currency"`
+	Reason      string    `json:"reason"`
+	Status      string    `json:"status"`
+	Actor       *int64    `json:"actor,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+type CreateCreditRequest struct {
+	OrderID     int64  `json:"order_id"`
+	AmountMinor int64  `json:"amount_minor"`
+	Reason      string `json:"reason"`
 }
