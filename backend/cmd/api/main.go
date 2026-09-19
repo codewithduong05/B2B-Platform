@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/atlas-platform/backend/internal/config"
 	"github.com/atlas-platform/backend/internal/database"
@@ -15,20 +16,25 @@ import (
 	catalog_repo "github.com/atlas-platform/backend/internal/modules/catalog/repository"
 	catalog_service "github.com/atlas-platform/backend/internal/modules/catalog/service"
 	"github.com/atlas-platform/backend/internal/modules/cms"
-	"github.com/atlas-platform/backend/internal/modules/reports"
 	"github.com/atlas-platform/backend/internal/modules/commerce"
 	commerce_repo "github.com/atlas-platform/backend/internal/modules/commerce/repository"
 	commerce_service "github.com/atlas-platform/backend/internal/modules/commerce/service"
 	"github.com/atlas-platform/backend/internal/modules/crm"
+	"github.com/atlas-platform/backend/internal/modules/erp"
 	"github.com/atlas-platform/backend/internal/modules/identity"
 	identity_service "github.com/atlas-platform/backend/internal/modules/identity/service"
 	"github.com/atlas-platform/backend/internal/modules/inventory"
 	"github.com/atlas-platform/backend/internal/modules/payments"
+	"github.com/atlas-platform/backend/internal/modules/platform"
 	"github.com/atlas-platform/backend/internal/modules/pricing"
 	pricing_service "github.com/atlas-platform/backend/internal/modules/pricing/service"
 	"github.com/atlas-platform/backend/internal/modules/promotions"
+	"github.com/atlas-platform/backend/internal/modules/reports"
+	reports_repo "github.com/atlas-platform/backend/internal/modules/reports/repository"
 	"github.com/atlas-platform/backend/internal/modules/suppliers"
 	"github.com/atlas-platform/backend/internal/server"
+	"github.com/atlas-platform/backend/internal/storage"
+	"github.com/atlas-platform/backend/internal/worker"
 )
 
 var version = "dev"
@@ -43,6 +49,13 @@ func webhookSecret(provider string) string {
 		return v
 	}
 	return "local-dev-secret"
+}
+
+func erpWebhookSecret() string {
+	if v := os.Getenv("ERP_WEBHOOK_SECRET"); v != "" {
+		return v
+	}
+	return "local-dev-erp-secret"
 }
 
 func main() {
@@ -202,6 +215,58 @@ func main() {
 		adminMiddleware(nil),
 	)
 	srv.Router().Mount("/api/v1", supplierRouter.ChiRouter())
+
+	// Register ERP module routes
+	erpService := erp.NewService(db)
+	erpService.SetWebhookSecret(erpWebhookSecret())
+	erpRouter := erp.New(erpService)
+	erpRouter.RegisterRoutes(
+		authMiddleware(authService),
+		adminMiddleware(nil),
+	)
+	srv.Router().Mount("/api/v1", erpRouter.ChiRouter())
+	srv.Router().Mount("/", erpRouter.WebhookRouter())
+
+	// Register platform module routes
+	platformService := platform.NewService(db)
+	platformRouter := platform.New(platformService)
+	platformRouter.RegisterRoutes(
+		authMiddleware(authService),
+		adminMiddleware(nil),
+	)
+	srv.Router().Mount("/api/v1", platformRouter.ChiRouter())
+
+	// Start export worker
+	storageRoot := os.Getenv("EXPORT_STORAGE_DIR")
+	if storageRoot == "" {
+		storageRoot = "/tmp/atlas-exports"
+	}
+	baseURL := os.Getenv("EXPORT_BASE_URL")
+	if baseURL == "" {
+		baseURL = "http://localhost:8080/api/v1"
+	}
+	store, err := storage.NewLocalStorage(storageRoot, baseURL)
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to create storage", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
+	reportsRepo := reports_repo.NewReportsRepository(db)
+	exportWorker := worker.NewExportWorker(reportsRepo, store, slog.Default())
+	
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if _, err := exportWorker.ProcessNext(ctx); err != nil {
+					slog.ErrorContext(ctx, "export worker error", slog.String("error", err.Error()))
+				}
+			}
+		}
+	}()
 
 	if err := srv.Start(ctx); err != nil {
 		slog.ErrorContext(ctx, "failed to start server", slog.String("error", err.Error()))
