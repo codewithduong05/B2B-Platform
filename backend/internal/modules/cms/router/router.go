@@ -32,6 +32,7 @@ func (rt *Router) RegisterRoutes(authMiddleware, adminMiddleware func(http.Handl
 		r.Get("/pages/{slug}", rt.handleGetPageBySlug)
 		r.Get("/faqs", rt.handleListFaqs)
 		r.Get("/menus/{location}", rt.handleListMenus)
+		r.Get("/homepage", rt.handleGetPublishedHomepage)
 	})
 
 	rt.router.Get("/sitemap.xml", rt.handleSitemap)
@@ -55,6 +56,10 @@ func (rt *Router) RegisterRoutes(authMiddleware, adminMiddleware func(http.Handl
 		r.Post("/menus", rt.handleAdminUpsertMenu)
 		r.Get("/settings", rt.handleAdminListSettings)
 		r.Put("/settings", rt.handleAdminUpdateSetting)
+
+		r.Get("/homepage", rt.handleGetAdminHomepage)
+		r.Put("/homepage", rt.handleUpdateDraftHomepage)
+		r.Post("/homepage/publish", rt.handlePublishHomepage)
 
 		r.Route("/seo", func(r chi.Router) {
 			r.Get("/templates", rt.handleAdminListSeoTemplates)
@@ -467,6 +472,80 @@ func (rt *Router) handleAdminUpsertSeoSetting(w http.ResponseWriter, r *http.Req
 		return
 	}
 	rt.writeJSON(w, http.StatusOK, st)
+}
+
+func (rt *Router) handleGetPublishedHomepage(w http.ResponseWriter, r *http.Request) {
+	homepage, err := rt.service.GetPublishedHomepage(r.Context())
+	if err != nil {
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	rt.writeJSON(w, http.StatusOK, homepage)
+}
+
+func (rt *Router) handleGetAdminHomepage(w http.ResponseWriter, r *http.Request) {
+	homepage, err := rt.service.GetAdminHomepage(r.Context())
+	if err != nil {
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	rt.writeJSON(w, http.StatusOK, homepage)
+}
+
+func (rt *Router) handleUpdateDraftHomepage(w http.ResponseWriter, r *http.Request) {
+	var req schema.UpdateHomepageRequest
+	defer r.Body.Close()
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_body", "invalid request body")
+		return
+	}
+	if req.Sections == nil {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_body", "sections array is required")
+		return
+	}
+	for _, sec := range req.Sections {
+		if sec.Code == "" || sec.SectionType == "" {
+			rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "section code and section_type are required")
+			return
+		}
+	}
+	updatedBy := r.Context().Value("user_id")
+	var updatedByPtr *string
+	if uid, ok := updatedBy.(string); ok && uid != "" {
+		updatedByPtr = &uid
+	}
+	homepage, err := rt.service.UpdateDraftHomepage(r.Context(), req, updatedByPtr)
+	if err != nil {
+		if errors.Is(err, service.ErrInvalidInput) {
+			rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "invalid section data")
+			return
+		}
+		if errors.Is(err, service.ErrConcurrentModification) {
+			rt.writeError(w, r, http.StatusConflict, "concurrent_modification", "the layout was modified by another request; re-fetch and retry")
+			return
+		}
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	rt.writeJSON(w, http.StatusOK, homepage)
+}
+
+func (rt *Router) handlePublishHomepage(w http.ResponseWriter, r *http.Request) {
+	updatedBy := r.Context().Value("user_id")
+	var updatedByPtr *string
+	if uid, ok := updatedBy.(string); ok && uid != "" {
+		updatedByPtr = &uid
+	}
+	homepage, err := rt.service.PublishHomepage(r.Context(), updatedByPtr)
+	if err != nil {
+		if errors.Is(err, service.ErrInvalidInput) {
+			rt.writeError(w, r, http.StatusUnprocessableEntity, "no_active_sections", "draft has no active sections to publish")
+			return
+		}
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	rt.writeJSON(w, http.StatusOK, homepage)
 }
 
 func (rt *Router) writeJSON(w http.ResponseWriter, status int, data interface{}) {

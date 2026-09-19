@@ -41,7 +41,8 @@ CREATE TABLE platform.notification (
     retry_count INTEGER NOT NULL DEFAULT 0,
     metadata JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at TIMESTAMPTZ
 );
 
 CREATE INDEX idx_notification_recipient ON platform.notification (recipient_type, recipient_id) WHERE deleted_at IS NULL;

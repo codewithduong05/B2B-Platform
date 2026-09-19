@@ -187,3 +187,156 @@ func TestCMS_EndToEnd(t *testing.T) {
 		t.Errorf("get menus: expected 200, got %d", resp.StatusCode)
 	}
 }
+
+func TestCMS_HomepageBuilder(t *testing.T) {
+	env := setupCMSEnv(t)
+	_, _ = env.db.Pool.Exec(context.Background(), "TRUNCATE TABLE cms.homepage_layout RESTART IDENTITY CASCADE")
+	_, _ = env.db.Pool.Exec(context.Background(), "INSERT INTO cms.homepage_layout (id) VALUES (1) ON CONFLICT DO NOTHING")
+
+	// 1. Get published homepage (should be empty initially)
+	resp, body := cmsDo(t, env, http.MethodGet, "/api/v1/cms/homepage", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get published homepage: expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+	var pubResp cms_schema.HomepageResponse
+	_ = json.Unmarshal(body, &pubResp)
+	if len(pubResp.Sections) != 0 {
+		t.Errorf("expected 0 published sections, got %d", len(pubResp.Sections))
+	}
+	if pubResp.PublishedAt != nil {
+		t.Errorf("expected published_at to be nil, got %v", pubResp.PublishedAt)
+	}
+
+	// 2. Get admin homepage (should show empty draft and published)
+	resp, body = cmsDo(t, env, http.MethodGet, "/api/v1/admin/cms/homepage", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get admin homepage: expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+	var adminResp cms_schema.HomepageResponse
+	_ = json.Unmarshal(body, &adminResp)
+	if len(adminResp.Sections) != 0 {
+		t.Errorf("expected 0 draft sections, got %d", len(adminResp.Sections))
+	}
+	if len(adminResp.PublishedSections) != 0 {
+		t.Errorf("expected 0 published sections, got %d", len(adminResp.PublishedSections))
+	}
+
+	// 3. Update draft homepage with sections
+	draftBody := `{
+		"sections": [
+			{"code": "sec_1", "section_type": "hero_banner", "title": "Hero", "is_active": true, "config": {"banner_code": "ban_123"}},
+			{"code": "sec_2", "section_type": "featured_products", "title": "Featured", "is_active": true, "config": {}},
+			{"code": "sec_3", "section_type": "newsletter", "title": "Newsletter", "is_active": false, "config": {}}
+		]
+	}`
+	resp, body = cmsDo(t, env, http.MethodPut, "/api/v1/admin/cms/homepage", draftBody)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("update draft homepage: expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+	_ = json.Unmarshal(body, &adminResp)
+	if len(adminResp.Sections) != 3 {
+		t.Errorf("expected 3 draft sections, got %d", len(adminResp.Sections))
+	}
+	if adminResp.Sections[0].SortOrder != 0 {
+		t.Errorf("expected sort_order 0, got %d", adminResp.Sections[0].SortOrder)
+	}
+	if adminResp.Sections[1].SortOrder != 1 {
+		t.Errorf("expected sort_order 1, got %d", adminResp.Sections[1].SortOrder)
+	}
+	if adminResp.Sections[2].SortOrder != 2 {
+		t.Errorf("expected sort_order 2, got %d", adminResp.Sections[2].SortOrder)
+	}
+
+	// 4. Publish homepage (should filter out inactive sections)
+	resp, body = cmsDo(t, env, http.MethodPost, "/api/v1/admin/cms/homepage/publish", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("publish homepage: expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+	_ = json.Unmarshal(body, &adminResp)
+	if len(adminResp.PublishedSections) != 2 {
+		t.Errorf("expected 2 published sections (inactive filtered), got %d", len(adminResp.PublishedSections))
+	}
+	if adminResp.PublishedAt == nil {
+		t.Errorf("expected published_at to be set")
+	}
+
+	// 5. Get published homepage (should show only active sections)
+	resp, body = cmsDo(t, env, http.MethodGet, "/api/v1/cms/homepage", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get published homepage: expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+	_ = json.Unmarshal(body, &pubResp)
+	if len(pubResp.Sections) != 2 {
+		t.Errorf("expected 2 published sections, got %d", len(pubResp.Sections))
+	}
+	if pubResp.PublishedAt == nil {
+		t.Errorf("expected published_at to be set in public response")
+	}
+	if pubResp.UpdatedBy != nil {
+		t.Errorf("expected updated_by to be nil in public response")
+	}
+
+	// 6. Update draft again and verify isolation
+	draftBody2 := `{
+		"sections": [
+			{"code": "sec_4", "section_type": "new_hero", "title": "New Hero", "is_active": true, "config": {}}
+		]
+	}`
+	resp, body = cmsDo(t, env, http.MethodPut, "/api/v1/admin/cms/homepage", draftBody2)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("update draft homepage again: expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+	_ = json.Unmarshal(body, &adminResp)
+	if len(adminResp.Sections) != 1 {
+		t.Errorf("expected 1 draft section after update, got %d", len(adminResp.Sections))
+	}
+	if len(adminResp.PublishedSections) != 2 {
+		t.Errorf("expected 2 published sections (unchanged), got %d", len(adminResp.PublishedSections))
+	}
+
+	// 7. Validation: empty section code should fail
+	invalidDraft := `{"sections": [{"code": "", "section_type": "hero"}]}`
+	resp, body = cmsDo(t, env, http.MethodPut, "/api/v1/admin/cms/homepage", invalidDraft)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 for empty section code, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	// 8. Validation: empty section_type should fail
+	invalidDraft2 := `{"sections": [{"code": "sec_x", "section_type": ""}]}`
+	resp, body = cmsDo(t, env, http.MethodPut, "/api/v1/admin/cms/homepage", invalidDraft2)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 for empty section_type, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	// 9. Validation: publish with no active sections should fail (422)
+	emptyDraft := `{"sections": [{"code": "sec_inactive", "section_type": "hero", "is_active": false}]}`
+	resp, _ = cmsDo(t, env, http.MethodPut, "/api/v1/admin/cms/homepage", emptyDraft)
+	resp, body = cmsDo(t, env, http.MethodPost, "/api/v1/admin/cms/homepage/publish", "")
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("expected 422 for publish with no active sections, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	// 10. Optimistic locking: stale expected_updated_at should return 409
+	// First, set a known draft and capture updated_at
+	setupDraft := `{"sections": [{"code": "sec_lock", "section_type": "hero", "is_active": true, "config": {}}]}`
+	resp, body = cmsDo(t, env, http.MethodPut, "/api/v1/admin/cms/homepage", setupDraft)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("setup draft for lock test: expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+	var lockResp cms_schema.HomepageResponse
+	_ = json.Unmarshal(body, &lockResp)
+	staleTime := lockResp.UpdatedAt.Add(-1 * time.Hour)
+	staleJSON, _ := json.Marshal(map[string]interface{}{
+		"sections":            []map[string]interface{}{{"code": "sec_lock2", "section_type": "hero", "is_active": true}},
+		"expected_updated_at": staleTime.Format(time.RFC3339Nano),
+	})
+	resp, body = cmsDo(t, env, http.MethodPut, "/api/v1/admin/cms/homepage", string(staleJSON))
+	if resp.StatusCode != http.StatusConflict {
+		t.Errorf("expected 409 for stale expected_updated_at, got %d: %s", resp.StatusCode, string(body))
+	}
+	var errBody map[string]string
+	_ = json.Unmarshal(body, &errBody)
+	if errBody["code"] != "concurrent_modification" {
+		t.Errorf("expected error code 'concurrent_modification', got %q", errBody["code"])
+	}
+}

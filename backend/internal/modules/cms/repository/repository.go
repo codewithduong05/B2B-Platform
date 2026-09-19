@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"time"
 
@@ -672,4 +673,112 @@ func (r *CMSRepository) ListProductFeedEntries(ctx context.Context) ([]ProductFe
 		entries = append(entries, e)
 	}
 	return entries, nil
+}
+
+type HomepageLayout struct {
+	ID                int64
+	DraftSections     []byte
+	PublishedSections []byte
+	PublishedAt       *time.Time
+	UpdatedAt         time.Time
+	UpdatedBy         *string
+}
+
+var ErrConcurrentModification = errors.New("concurrent modification detected")
+
+func (r *CMSRepository) GetHomepageLayout(ctx context.Context) (HomepageLayout, error) {
+	var h HomepageLayout
+	var draft, published []byte
+	var pubAt pgtype.Timestamptz
+	var updatedBy pgtype.Text
+	err := r.conn().QueryRow(ctx, `
+		SELECT id, draft_sections, published_sections, published_at, updated_at, updated_by
+		FROM cms.homepage_layout WHERE id = 1
+	`).Scan(&h.ID, &draft, &published, &pubAt, &h.UpdatedAt, &updatedBy)
+	if err != nil {
+		return h, err
+	}
+	h.DraftSections = draft
+	h.PublishedSections = published
+	if pubAt.Valid {
+		t := pubAt.Time
+		h.PublishedAt = &t
+	}
+	if updatedBy.Valid {
+		s := updatedBy.String
+		h.UpdatedBy = &s
+	}
+	return h, nil
+}
+
+func (r *CMSRepository) GetHomepageLayoutForUpdate(ctx context.Context) (HomepageLayout, error) {
+	var h HomepageLayout
+	var draft, published []byte
+	var pubAt pgtype.Timestamptz
+	var updatedBy pgtype.Text
+	err := r.conn().QueryRow(ctx, `
+		SELECT id, draft_sections, published_sections, published_at, updated_at, updated_by
+		FROM cms.homepage_layout WHERE id = 1 FOR UPDATE
+	`).Scan(&h.ID, &draft, &published, &pubAt, &h.UpdatedAt, &updatedBy)
+	if err != nil {
+		return h, err
+	}
+	h.DraftSections = draft
+	h.PublishedSections = published
+	if pubAt.Valid {
+		t := pubAt.Time
+		h.PublishedAt = &t
+	}
+	if updatedBy.Valid {
+		s := updatedBy.String
+		h.UpdatedBy = &s
+	}
+	return h, nil
+}
+
+func (r *CMSRepository) UpdateDraftLayout(ctx context.Context, draftSections []byte, updatedBy *string, expectedUpdatedAt *time.Time) (HomepageLayout, error) {
+	var ub pgtype.Text
+	if updatedBy != nil {
+		ub = pgtype.Text{String: *updatedBy, Valid: true}
+	}
+	if expectedUpdatedAt != nil {
+		tag, err := r.conn().Exec(ctx, `
+			UPDATE cms.homepage_layout
+			SET draft_sections = $1, updated_by = $2, updated_at = NOW()
+			WHERE id = 1 AND updated_at = $3
+		`, draftSections, ub, *expectedUpdatedAt)
+		if err != nil {
+			return HomepageLayout{}, err
+		}
+		if tag.RowsAffected() == 0 {
+			return HomepageLayout{}, ErrConcurrentModification
+		}
+	} else {
+		_, err := r.conn().Exec(ctx, `
+			INSERT INTO cms.homepage_layout (id, draft_sections, updated_by)
+			VALUES (1, $1, $2)
+			ON CONFLICT (id) DO UPDATE
+			SET draft_sections = $1, updated_by = $2, updated_at = NOW()
+		`, draftSections, ub)
+		if err != nil {
+			return HomepageLayout{}, err
+		}
+	}
+	return r.GetHomepageLayout(ctx)
+}
+
+func (r *CMSRepository) PublishHomepage(ctx context.Context, publishedSections []byte, updatedBy *string) (HomepageLayout, error) {
+	var ub pgtype.Text
+	if updatedBy != nil {
+		ub = pgtype.Text{String: *updatedBy, Valid: true}
+	}
+	_, err := r.conn().Exec(ctx, `
+		UPDATE cms.homepage_layout
+		SET published_sections = $1, published_at = NOW(), updated_by = $2, updated_at = NOW()
+		WHERE id = 1
+	`, publishedSections, ub)
+	if err != nil {
+		return HomepageLayout{}, err
+	}
+	return r.GetHomepageLayout(ctx)
 }

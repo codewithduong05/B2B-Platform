@@ -20,8 +20,9 @@ var jsonMarshal = json.Marshal
 var jsonUnmarshal = json.Unmarshal
 
 var (
-	ErrNotFound     = errors.New("cms resource not found")
-	ErrInvalidInput = errors.New("invalid cms request")
+	ErrNotFound               = errors.New("cms resource not found")
+	ErrInvalidInput           = errors.New("invalid cms request")
+	ErrConcurrentModification = errors.New("concurrent modification detected")
 )
 
 type CMSService struct {
@@ -527,6 +528,188 @@ func (s *CMSService) GenerateProductFeed(ctx context.Context, baseURL string) (s
 	}
 	b.WriteString("</feed>")
 	return b.String(), nil
+}
+
+// Homepage
+func (s *CMSService) GetPublishedHomepage(ctx context.Context) (*schema.HomepageResponse, error) {
+	h, err := s.repo.GetHomepageLayout(ctx)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return &schema.HomepageResponse{
+				Sections: []schema.HomepageSection{},
+			}, nil
+		}
+		return nil, fmt.Errorf("get homepage layout: %w", err)
+	}
+	var published []schema.HomepageSection
+	if len(h.PublishedSections) > 0 {
+		if err := jsonUnmarshal(h.PublishedSections, &published); err != nil {
+			return nil, fmt.Errorf("unmarshal published sections: %w", err)
+		}
+	}
+	if published == nil {
+		published = []schema.HomepageSection{}
+	}
+	return &schema.HomepageResponse{
+		Sections:    published,
+		PublishedAt: h.PublishedAt,
+		UpdatedAt:   h.UpdatedAt,
+	}, nil
+}
+
+func (s *CMSService) GetAdminHomepage(ctx context.Context) (*schema.HomepageResponse, error) {
+	h, err := s.repo.GetHomepageLayout(ctx)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return &schema.HomepageResponse{
+				Sections:          []schema.HomepageSection{},
+				PublishedSections: []schema.HomepageSection{},
+			}, nil
+		}
+		return nil, fmt.Errorf("get homepage layout: %w", err)
+	}
+	var draft, published []schema.HomepageSection
+	if len(h.DraftSections) > 0 {
+		if err := jsonUnmarshal(h.DraftSections, &draft); err != nil {
+			return nil, fmt.Errorf("unmarshal draft sections: %w", err)
+		}
+	}
+	if len(h.PublishedSections) > 0 {
+		if err := jsonUnmarshal(h.PublishedSections, &published); err != nil {
+			return nil, fmt.Errorf("unmarshal published sections: %w", err)
+		}
+	}
+	if draft == nil {
+		draft = []schema.HomepageSection{}
+	}
+	if published == nil {
+		published = []schema.HomepageSection{}
+	}
+	return &schema.HomepageResponse{
+		Sections:          draft,
+		PublishedSections: published,
+		PublishedAt:       h.PublishedAt,
+		UpdatedAt:         h.UpdatedAt,
+		UpdatedBy:         h.UpdatedBy,
+	}, nil
+}
+
+func (s *CMSService) UpdateDraftHomepage(ctx context.Context, req schema.UpdateHomepageRequest, updatedBy *string) (*schema.HomepageResponse, error) {
+	if req.Sections == nil {
+		return nil, ErrInvalidInput
+	}
+	for _, sec := range req.Sections {
+		if strings.TrimSpace(sec.Code) == "" || strings.TrimSpace(sec.SectionType) == "" {
+			return nil, ErrInvalidInput
+		}
+	}
+	for i := range req.Sections {
+		req.Sections[i].SortOrder = i
+	}
+	draftJSON, err := jsonMarshal(req.Sections)
+	if err != nil {
+		return nil, fmt.Errorf("marshal draft sections: %w", err)
+	}
+	h, err := s.repo.UpdateDraftLayout(ctx, draftJSON, updatedBy, req.ExpectedUpdatedAt)
+	if err != nil {
+		if errors.Is(err, repository.ErrConcurrentModification) {
+			return nil, ErrConcurrentModification
+		}
+		return nil, fmt.Errorf("update draft layout: %w", err)
+	}
+	var draft []schema.HomepageSection
+	if len(h.DraftSections) > 0 {
+		if err := jsonUnmarshal(h.DraftSections, &draft); err != nil {
+			return nil, fmt.Errorf("unmarshal draft sections: %w", err)
+		}
+	}
+	if draft == nil {
+		draft = []schema.HomepageSection{}
+	}
+	var published []schema.HomepageSection
+	if len(h.PublishedSections) > 0 {
+		if err := jsonUnmarshal(h.PublishedSections, &published); err != nil {
+			return nil, fmt.Errorf("unmarshal published sections: %w", err)
+		}
+	}
+	if published == nil {
+		published = []schema.HomepageSection{}
+	}
+	return &schema.HomepageResponse{
+		Sections:          draft,
+		PublishedSections: published,
+		PublishedAt:       h.PublishedAt,
+		UpdatedAt:         h.UpdatedAt,
+		UpdatedBy:         h.UpdatedBy,
+	}, nil
+}
+
+func (s *CMSService) PublishHomepage(ctx context.Context, updatedBy *string) (*schema.HomepageResponse, error) {
+	var result *schema.HomepageResponse
+	err := s.db.WithTx(ctx, func(tx *database.Tx) error {
+		txRepo := repository.NewCMSRepositoryWithTx(tx)
+		h, err := txRepo.GetHomepageLayoutForUpdate(ctx)
+		if err != nil {
+			return fmt.Errorf("get homepage layout for update: %w", err)
+		}
+		var draft []schema.HomepageSection
+		if len(h.DraftSections) > 0 {
+			if err := jsonUnmarshal(h.DraftSections, &draft); err != nil {
+				return fmt.Errorf("unmarshal draft sections: %w", err)
+			}
+		}
+		activeSections := make([]schema.HomepageSection, 0, len(draft))
+		for _, sec := range draft {
+			isActive := sec.IsActive == nil || *sec.IsActive
+			if isActive {
+				activeSections = append(activeSections, sec)
+			}
+		}
+		if len(activeSections) == 0 {
+			return ErrInvalidInput
+		}
+		publishedJSON, err := jsonMarshal(activeSections)
+		if err != nil {
+			return fmt.Errorf("marshal published sections: %w", err)
+		}
+		h, err = txRepo.PublishHomepage(ctx, publishedJSON, updatedBy)
+		if err != nil {
+			return fmt.Errorf("publish homepage: %w", err)
+		}
+		var published []schema.HomepageSection
+		if len(h.PublishedSections) > 0 {
+			if err := jsonUnmarshal(h.PublishedSections, &published); err != nil {
+				return fmt.Errorf("unmarshal published sections: %w", err)
+			}
+		}
+		if published == nil {
+			published = []schema.HomepageSection{}
+		}
+		var draftOut []schema.HomepageSection
+		if len(h.DraftSections) > 0 {
+			if err := jsonUnmarshal(h.DraftSections, &draftOut); err != nil {
+				return fmt.Errorf("unmarshal draft sections: %w", err)
+			}
+		}
+		if draftOut == nil {
+			draftOut = []schema.HomepageSection{}
+		}
+		result = &schema.HomepageResponse{
+			Sections:          draftOut,
+			PublishedSections: published,
+			PublishedAt:       h.PublishedAt,
+			UpdatedAt:         h.UpdatedAt,
+			UpdatedBy:         h.UpdatedBy,
+		}
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, ErrInvalidInput) {
+			return nil, ErrInvalidInput
+		}
+		return nil, err
+	}
+	return result, nil
 }
 
 func toSeoTemplateResponse(t repository.SeoTemplate) *schema.SeoTemplateResponse {

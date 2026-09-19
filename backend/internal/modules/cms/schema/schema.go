@@ -156,3 +156,25 @@ type SitemapURL struct {
 	ChangeFreq string     `xml:"changefreq,omitempty"`
 	Priority   float64    `xml:"priority,omitempty"`
 }
+
+type HomepageSection struct {
+	Code        string         `json:"code"`
+	SectionType string         `json:"section_type"`
+	Title       *string        `json:"title,omitempty"`
+	IsActive    *bool          `json:"is_active,omitempty"`
+	SortOrder   int            `json:"sort_order"`
+	Config      map[string]any `json:"config,omitempty"`
+}
+
+type UpdateHomepageRequest struct {
+	Sections          []HomepageSection `json:"sections"`
+	ExpectedUpdatedAt *time.Time        `json:"expected_updated_at,omitempty"`
+}
+
+type HomepageResponse struct {
+	Sections          []HomepageSection `json:"sections"`
+	PublishedSections []HomepageSection `json:"published_sections,omitempty"`
+	PublishedAt       *time.Time        `json:"published_at,omitempty"`
+	UpdatedAt         time.Time         `json:"updated_at"`
+	UpdatedBy         *string           `json:"updated_by,omitempty"`
+}
