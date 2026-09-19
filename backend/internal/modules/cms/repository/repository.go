@@ -1351,3 +1351,168 @@ func (r *CMSRepository) GetLatestPublishedVersion(ctx context.Context, docType s
 	`, docType)
 	return scanLegalDocumentVersion(row)
 }
+
+type ContactEnquiry struct {
+	ID        int64
+	Code      string
+	Name      string
+	Email     string
+	Phone     *string
+	Company   *string
+	Subject   string
+	Message   string
+	Source    string
+	Status    string
+	LeadID    *int64
+	IPAddress *string
+	UserAgent *string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	RoutedAt  *time.Time
+}
+
+const contactEnquiryColumns = `id, code, name, email, phone, company, subject, message, source, status, lead_id, ip_address, user_agent, created_at, updated_at, routed_at`
+
+func scanContactEnquiry(row interface{ Scan(...any) error }) (ContactEnquiry, error) {
+	var e ContactEnquiry
+	var phone, company, ipAddr, userAgent pgtype.Text
+	var leadID pgtype.Int8
+	var routedAt pgtype.Timestamptz
+	err := row.Scan(
+		&e.ID, &e.Code, &e.Name, &e.Email, &phone, &company, &e.Subject, &e.Message,
+		&e.Source, &e.Status, &leadID, &ipAddr, &userAgent,
+		&e.CreatedAt, &e.UpdatedAt, &routedAt,
+	)
+	if err != nil {
+		return e, err
+	}
+	if phone.Valid {
+		s := phone.String
+		e.Phone = &s
+	}
+	if company.Valid {
+		s := company.String
+		e.Company = &s
+	}
+	if leadID.Valid {
+		v := leadID.Int64
+		e.LeadID = &v
+	}
+	if ipAddr.Valid {
+		s := ipAddr.String
+		e.IPAddress = &s
+	}
+	if userAgent.Valid {
+		s := userAgent.String
+		e.UserAgent = &s
+	}
+	if routedAt.Valid {
+		t := routedAt.Time
+		e.RoutedAt = &t
+	}
+	return e, nil
+}
+
+func (r *CMSRepository) CreateContactEnquiry(ctx context.Context, code, name, email string, phone, company *string, subject, message, source string, ipAddress, userAgent *string) (ContactEnquiry, error) {
+	var ph, co, ip, ua pgtype.Text
+	if phone != nil {
+		ph = pgtype.Text{String: *phone, Valid: true}
+	}
+	if company != nil {
+		co = pgtype.Text{String: *company, Valid: true}
+	}
+	if ipAddress != nil {
+		ip = pgtype.Text{String: *ipAddress, Valid: true}
+	}
+	if userAgent != nil {
+		ua = pgtype.Text{String: *userAgent, Valid: true}
+	}
+	var id int64
+	err := r.conn().QueryRow(ctx, `
+		INSERT INTO cms.contact_enquiry (code, name, email, phone, company, subject, message, source, ip_address, user_agent)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		RETURNING id
+	`, code, name, email, ph, co, subject, message, source, ip, ua).Scan(&id)
+	if err != nil {
+		return ContactEnquiry{}, err
+	}
+	return r.GetContactEnquiryByID(ctx, id)
+}
+
+func (r *CMSRepository) GetContactEnquiryByID(ctx context.Context, id int64) (ContactEnquiry, error) {
+	row := r.conn().QueryRow(ctx, `SELECT `+contactEnquiryColumns+` FROM cms.contact_enquiry WHERE id = $1`, id)
+	return scanContactEnquiry(row)
+}
+
+func (r *CMSRepository) GetContactEnquiryByCode(ctx context.Context, code string) (ContactEnquiry, error) {
+	row := r.conn().QueryRow(ctx, `SELECT `+contactEnquiryColumns+` FROM cms.contact_enquiry WHERE code = $1`, code)
+	return scanContactEnquiry(row)
+}
+
+func (r *CMSRepository) ListContactEnquiries(ctx context.Context, status, source, search string, dateFrom, dateTo *time.Time, limit, offset int32) ([]ContactEnquiry, int, error) {
+	where := `1=1`
+	var args []any
+	argN := 1
+	if status != "" {
+		where += ` AND status = $` + strconv.Itoa(argN)
+		args = append(args, status)
+		argN++
+	}
+	if source != "" {
+		where += ` AND source = $` + strconv.Itoa(argN)
+		args = append(args, source)
+		argN++
+	}
+	if search != "" {
+		where += ` AND (name ILIKE $` + strconv.Itoa(argN) + ` OR email ILIKE $` + strconv.Itoa(argN) + ` OR company ILIKE $` + strconv.Itoa(argN) + ` OR subject ILIKE $` + strconv.Itoa(argN) + `)`
+		args = append(args, "%"+search+"%")
+		argN++
+	}
+	if dateFrom != nil {
+		where += ` AND created_at >= $` + strconv.Itoa(argN)
+		args = append(args, *dateFrom)
+		argN++
+	}
+	if dateTo != nil {
+		where += ` AND created_at <= $` + strconv.Itoa(argN)
+		args = append(args, *dateTo)
+		argN++
+	}
+
+	countQuery := `SELECT COUNT(*) FROM cms.contact_enquiry WHERE ` + where
+	var total int
+	err := r.conn().QueryRow(ctx, countQuery, args...).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	query := `SELECT ` + contactEnquiryColumns + ` FROM cms.contact_enquiry WHERE ` + where + ` ORDER BY created_at DESC LIMIT $` + strconv.Itoa(argN) + ` OFFSET $` + strconv.Itoa(argN+1)
+	args = append(args, limit, offset)
+	rows, err := r.conn().Query(ctx, query, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var enquiries []ContactEnquiry
+	for rows.Next() {
+		e, err := scanContactEnquiry(rows)
+		if err != nil {
+			return nil, 0, err
+		}
+		enquiries = append(enquiries, e)
+	}
+	return enquiries, total, nil
+}
+
+func (r *CMSRepository) UpdateContactEnquiryLeadID(ctx context.Context, id int64, leadID int64) (ContactEnquiry, error) {
+	_, err := r.conn().Exec(ctx, `
+		UPDATE cms.contact_enquiry
+		SET lead_id = $2, routed_at = NOW(), updated_at = NOW()
+		WHERE id = $1
+	`, id, leadID)
+	if err != nil {
+		return ContactEnquiry{}, err
+	}
+	return r.GetContactEnquiryByID(ctx, id)
+}

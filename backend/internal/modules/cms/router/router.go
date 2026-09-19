@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/mail"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/atlas-platform/backend/internal/modules/cms/schema"
@@ -42,6 +44,8 @@ func (rt *Router) RegisterRoutes(authMiddleware, adminMiddleware func(http.Handl
 
 		r.Get("/legal/{doc_type}", rt.handleGetCurrentEffectiveVersion)
 		r.Get("/legal/{doc_type}/versions/{version}", rt.handleGetLegalDocumentVersion)
+
+		r.Post("/enquiries", rt.handleSubmitContactEnquiry)
 	})
 
 	rt.router.Get("/sitemap.xml", rt.handleSitemap)
@@ -93,6 +97,11 @@ func (rt *Router) RegisterRoutes(authMiddleware, adminMiddleware func(http.Handl
 			r.Put("/documents/{doc_type}/draft", rt.handleAdminUpdateLegalDocumentDraft)
 			r.Post("/documents/{doc_type}/publish", rt.handleAdminPublishLegalDocumentDraft)
 			r.Get("/documents/{doc_type}/versions", rt.handleAdminListLegalDocumentVersions)
+		})
+
+		r.Route("/enquiries", func(r chi.Router) {
+			r.Get("/", rt.handleAdminListContactEnquiries)
+			r.Get("/{code}", rt.handleAdminGetContactEnquiry)
 		})
 	})
 }
@@ -941,6 +950,104 @@ func (rt *Router) handleAdminListLegalDocumentVersions(w http.ResponseWriter, r 
 		"items": versions, "page": page, "page_size": limit,
 		"total": total, "has_next": int(page)*int(limit) < total,
 	})
+}
+
+func (rt *Router) handleSubmitContactEnquiry(w http.ResponseWriter, r *http.Request) {
+	var req schema.SubmitContactEnquiryRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_body", "request body must be valid JSON")
+		return
+	}
+
+	ipAddress := r.RemoteAddr
+	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
+		ipAddress = fwd
+	}
+	userAgent := r.UserAgent()
+	req.IPAddress = &ipAddress
+	req.UserAgent = &userAgent
+
+	resp, err := rt.service.SubmitContactEnquiry(r.Context(), req)
+	if err != nil {
+		if errors.Is(err, service.ErrInvalidInput) {
+			if strings.TrimSpace(req.Email) == "" {
+				rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "email is required")
+				return
+			}
+			if _, mailErr := mail.ParseAddress(req.Email); mailErr != nil {
+				rt.writeError(w, r, http.StatusBadRequest, "invalid_email", "email must be a valid format")
+				return
+			}
+			if strings.TrimSpace(req.Name) == "" {
+				rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "name is required")
+				return
+			}
+			if strings.TrimSpace(req.Subject) == "" {
+				rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "subject is required")
+				return
+			}
+			if strings.TrimSpace(req.Message) == "" {
+				rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "message is required")
+				return
+			}
+			if len(req.Message) > 5000 {
+				rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "message must not exceed 5000 characters")
+				return
+			}
+			rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "invalid request")
+			return
+		}
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	rt.writeJSON(w, http.StatusAccepted, resp)
+}
+
+func (rt *Router) handleAdminListContactEnquiries(w http.ResponseWriter, r *http.Request) {
+	page, limit, offset := parsePage(r)
+	q := r.URL.Query()
+	status := q.Get("status")
+	source := q.Get("source")
+	search := q.Get("q")
+
+	var dateFrom, dateTo *time.Time
+	if df := q.Get("date_from"); df != "" {
+		if t, err := time.Parse(time.RFC3339, df); err == nil {
+			dateFrom = &t
+		}
+	}
+	if dt := q.Get("date_to"); dt != "" {
+		if t, err := time.Parse(time.RFC3339, dt); err == nil {
+			dateTo = &t
+		}
+	}
+
+	enquiries, total, err := rt.service.ListContactEnquiries(r.Context(), status, source, search, dateFrom, dateTo, limit, offset)
+	if err != nil {
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	if enquiries == nil {
+		enquiries = []schema.ContactEnquiryResponse{}
+	}
+	rt.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"items": enquiries, "page": page, "page_size": limit,
+		"total": total, "has_next": int(page)*int(limit) < total,
+	})
+}
+
+func (rt *Router) handleAdminGetContactEnquiry(w http.ResponseWriter, r *http.Request) {
+	code := chi.URLParam(r, "code")
+	resp, err := rt.service.GetContactEnquiryByCode(r.Context(), code)
+	if err != nil {
+		if errors.Is(err, service.ErrNotFound) {
+			rt.writeError(w, r, http.StatusNotFound, "not_found", "enquiry not found")
+			return
+		}
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	rt.writeJSON(w, http.StatusOK, resp)
 }
 
 func (rt *Router) writeJSON(w http.ResponseWriter, status int, data interface{}) {

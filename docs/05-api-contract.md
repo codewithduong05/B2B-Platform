@@ -399,6 +399,9 @@ Prefixes are shown relative to `/api/v1`. **A** = authenticated, **S** = staff p
 | PUT | `/admin/cms/legal/documents/{doc_type}/draft` | S | Update draft version |
 | POST | `/admin/cms/legal/documents/{doc_type}/publish` | S | Publish draft as new version |
 | GET | `/admin/cms/legal/documents/{doc_type}/versions` | S | List all versions |
+| POST | `/cms/enquiries` | P | Submit a contact enquiry |
+| GET | `/admin/cms/enquiries` | S | Enquiry list |
+| GET | `/admin/cms/enquiries/{id}` | S | Enquiry detail |
 
 #### Homepage builder contract
 
@@ -677,6 +680,102 @@ The draft is the in-progress next version. At most one draft exists per document
 **Idempotency.** Draft PUT is not idempotent (it replaces the draft). Publish POST is conditionally idempotent — if the draft is identical to the current version, no new version is created. Document create POST returns `409` on duplicate `doc_type`.
 
 **Scope.** This contract covers legal document versioning and public retrieval. Consent recording, consent history, re-consent prompting, and consent revocation are out of scope for this specification (A9.9 future slice or identity module). No approval workflow — any staff member with `cms.legal` can publish.
+
+#### Contact enquiries contract
+
+Contact enquiries are **public inbound messages** from the website contact form (S6.3) that feed into the CRM lead pipeline. Each enquiry is stored in the CMS schema and automatically routed to a CRM lead via asynchronous event. The admin view (A9.11) allows staff to review enquiries and their linked leads.
+
+**Enquiry object**
+
+```json
+{
+  "id": "enq_abc123",
+  "name": "Jane Doe",
+  "email": "jane@example.com",
+  "phone": "+84 123 456 789",
+  "company": "Acme Restaurant",
+  "subject": "Product inquiry",
+  "message": "I would like to know more about your chilled products...",
+  "source": "contact_form",
+  "status": "new",
+  "lead_id": "lead_xyz789",
+  "ip_address": "192.168.1.1",
+  "user_agent": "Mozilla/5.0...",
+  "created_at": "2026-09-20T10:00:00Z",
+  "updated_at": "2026-09-20T10:00:00Z",
+  "routed_at": "2026-09-20T10:00:01Z"
+}
+```
+
+| Field | Type | Rule |
+|---|---|---|
+| `id` | string | Opaque enquiry identifier. Server-generated. |
+| `name` | string | Contact name. Required. 1–200 characters. |
+| `email` | string | Contact email. Required. Normalized (trimmed, lowercased). Valid email format. |
+| `phone` | string \| null | Contact phone. Optional. Free-form (international format accepted). |
+| `company` | string \| null | Company name. Optional. 1–200 characters. |
+| `subject` | string | Enquiry subject. Required. 1–200 characters. |
+| `message` | string | Enquiry message. Required. 1–5000 characters. |
+| `source` | string | Origin of the enquiry. `contact_form` (S6.3), `lead_capture` (S6.6), `partner_landing` (S6.4), `admin` (staff-created). |
+| `status` | string | `new`, `in_progress`, `resolved`, `closed`. Default `new`. |
+| `lead_id` | string \| null | CRM lead ID once routed. Null until the CRM module creates the lead. |
+| `ip_address` | string \| null | Client IP at submission time. Optional (may be omitted for privacy). |
+| `user_agent` | string \| null | Client user agent. Optional. |
+| `created_at` | timestamp | Enquiry creation time. |
+| `updated_at` | timestamp | Last mutation time (status change, lead routing). |
+| `routed_at` | timestamp \| null | When the lead was created. Null until routed. |
+
+**Endpoint detail**
+
+| Endpoint | Behaviour |
+|---|---|
+| `POST /cms/enquiries` | Accepts `{ "name": "...", "email": "...", "phone": "...", "company": "...", "subject": "...", "message": "..." }`. Creates an enquiry in `new` status and publishes a `cms.enquiry.submitted` event. The CRM module consumes the event and creates a lead (asynchronous). Returns `202` with the enquiry object (including `lead_id: null` initially). Does not reveal whether the email already exists in the system. Rate-limited to 10 requests per minute per IP. |
+| `GET /admin/cms/enquiries` | Paginated list (offset: `page`/`page_size`, max 100). Filter by `status` (`new`, `in_progress`, `resolved`, `closed`), `source`, `date_from`, `date_to`. Search by `q` (matches name, email, company, subject). Sorted by `created_at` descending by default. Returns enquiry objects with `lead_id` populated once routed. |
+| `GET /admin/cms/enquiries/{id}` | Enquiry detail. Returns the full enquiry object. If the lead has been created, `lead_id` is populated. Returns `404` if the enquiry does not exist. |
+
+**Validation**
+
+| Condition | Status | Code |
+|---|---|---|
+| `name` missing or empty | 400 | `invalid_request` |
+| `email` missing or empty | 400 | `invalid_request` |
+| `email` not a valid format | 400 | `invalid_email` |
+| `subject` missing or empty | 400 | `invalid_request` |
+| `message` missing or empty | 400 | `invalid_request` |
+| `message` exceeds 5000 characters | 400 | `invalid_request` |
+| Request body not valid JSON | 400 | `invalid_body` |
+| Enquiry not found | 404 | `not_found` |
+
+**CRM lead creation semantics.** When a contact enquiry is submitted, the CMS module publishes a `cms.enquiry.submitted` event with the enquiry ID and payload. The CRM module consumes the event and creates a lead with:
+- `source` = `contact_form` (or the enquiry's `source` value)
+- `contact_name` = enquiry `name`
+- `contact_email` = enquiry `email`
+- `contact_phone` = enquiry `phone`
+- `company_name` = enquiry `company`
+- `notes` = enquiry `subject` + `message` (concatenated)
+- `status` = `new`
+
+The CRM module updates the enquiry's `lead_id` and `routed_at` via an internal API call or event acknowledgement. If the CRM module fails to create the lead (e.g., temporary outage), the enquiry remains in `new` status with `lead_id: null`. A background job retries failed routings periodically.
+
+**Duplicate submission behavior.** The public endpoint does not enforce uniqueness on email or phone. A buyer can submit multiple enquiries. Each submission creates a new enquiry and a new lead. There is no deduplication at the CMS level — the CRM module may apply lead deduplication logic (e.g., matching by email) when creating the lead.
+
+**Status lifecycle.** An enquiry transitions through states: `new` → `in_progress` → `resolved` → `closed`. The initial status is `new`. Status transitions are performed by staff via `PATCH /admin/cms/enquiries/{id}` (future slice — not in this specification). The `lead_id` is populated asynchronously after submission.
+
+**Source attribution.** The `source` field indicates where the enquiry originated:
+- `contact_form`: The public contact page (S6.3 `/lien-he`)
+- `lead_capture`: Inline lead capture form (S6.6)
+- `partner_landing`: Partner campaign landing page (S6.4)
+- `admin`: Staff-created enquiry (future slice)
+
+The source is determined by the frontend and passed in the request body (optional field, defaults to `contact_form` if omitted).
+
+**Rate limiting.** The public enquiry endpoint is rate-limited to 10 requests per minute per IP (same class as registration and newsletter subscription). Exceeding the limit returns `429` with `Retry-After`.
+
+**Privacy.** The enquiry stores the submitter's IP address and user agent for abuse prevention. These fields are optional and may be omitted if privacy policy prohibits storage. Enquiries can be deleted by staff via a future endpoint (not in this specification — GDPR deletion follows the newsletter pattern).
+
+**Idempotency.** Contact enquiry submission does not use idempotency keys (it is not a financial operation). Each POST creates a new enquiry. Duplicate submissions from the same IP within the rate limit window create multiple enquiries and leads.
+
+**Scope.** This contract covers the public submission and admin retrieval of contact enquiries. Status management (PATCH), manual lead routing, enquiry deletion, and bulk operations are out of scope for this specification (future CMS slice). The CRM lead creation is asynchronous and handled by the CRM module — this contract defines the event contract, not the CRM lead schema.
 
 ### `suppliers`
 

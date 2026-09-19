@@ -299,3 +299,41 @@ type LegalDocumentVersionListResponse struct {
 	Total    int                    `json:"total"`
 	HasNext  bool                   `json:"has_next"`
 }
+
+type ContactEnquiryResponse struct {
+	ID        string     `json:"id"`
+	Name      string     `json:"name"`
+	Email     string     `json:"email"`
+	Phone     *string    `json:"phone,omitempty"`
+	Company   *string    `json:"company,omitempty"`
+	Subject   string     `json:"subject"`
+	Message   string     `json:"message"`
+	Source    string     `json:"source"`
+	Status    string     `json:"status"`
+	LeadID    *string    `json:"lead_id,omitempty"`
+	IPAddress *string    `json:"ip_address,omitempty"`
+	UserAgent *string    `json:"user_agent,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	RoutedAt  *time.Time `json:"routed_at,omitempty"`
+}
+
+type SubmitContactEnquiryRequest struct {
+	Name      string  `json:"name"`
+	Email     string  `json:"email"`
+	Phone     *string `json:"phone,omitempty"`
+	Company   *string `json:"company,omitempty"`
+	Subject   string  `json:"subject"`
+	Message   string  `json:"message"`
+	Source    *string `json:"source,omitempty"`
+	IPAddress *string `json:"ip_address,omitempty"`
+	UserAgent *string `json:"user_agent,omitempty"`
+}
+
+type ContactEnquiryListResponse struct {
+	Items    []ContactEnquiryResponse `json:"items"`
+	Page     int32                    `json:"page"`
+	PageSize int32                    `json:"page_size"`
+	Total    int                      `json:"total"`
+	HasNext  bool                     `json:"has_next"`
+}

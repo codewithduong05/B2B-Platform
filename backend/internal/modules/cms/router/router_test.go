@@ -718,3 +718,182 @@ func TestCMS_LegalDocuments(t *testing.T) {
 		t.Errorf("expected at least 2 versions, got %d", len(detail.Versions))
 	}
 }
+
+func TestCMS_ContactEnquiries(t *testing.T) {
+	env := setupCMSEnv(t)
+	_, _ = env.db.Pool.Exec(context.Background(), "TRUNCATE TABLE cms.contact_enquiry RESTART IDENTITY CASCADE")
+
+	// 1. Submit contact enquiry - success
+	resp, body := cmsDo(t, env, http.MethodPost, "/api/v1/cms/enquiries", `{"name":"Jane Doe","email":"jane@example.com","phone":"+84 123 456 789","company":"Acme Restaurant","subject":"Product inquiry","message":"I would like to know more about your chilled products."}`)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("submit enquiry: expected 202, got %d: %s", resp.StatusCode, string(body))
+	}
+	var enquiry cms_schema.ContactEnquiryResponse
+	_ = json.Unmarshal(body, &enquiry)
+	if enquiry.ID == "" {
+		t.Errorf("expected enquiry ID to be set")
+	}
+	if enquiry.Name != "Jane Doe" {
+		t.Errorf("expected name 'Jane Doe', got '%s'", enquiry.Name)
+	}
+	if enquiry.Email != "jane@example.com" {
+		t.Errorf("expected email 'jane@example.com', got '%s'", enquiry.Email)
+	}
+	if enquiry.Status != "new" {
+		t.Errorf("expected status 'new', got '%s'", enquiry.Status)
+	}
+	if enquiry.Source != "contact_form" {
+		t.Errorf("expected source 'contact_form', got '%s'", enquiry.Source)
+	}
+	if enquiry.LeadID != nil {
+		t.Errorf("expected lead_id to be null initially")
+	}
+
+	// 2. Submit enquiry with custom source
+	resp, body = cmsDo(t, env, http.MethodPost, "/api/v1/cms/enquiries", `{"name":"John Smith","email":"john@example.com","subject":"Lead capture","message":"Interested in partnership","source":"lead_capture"}`)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("submit enquiry with source: expected 202, got %d: %s", resp.StatusCode, string(body))
+	}
+	_ = json.Unmarshal(body, &enquiry)
+	if enquiry.Source != "lead_capture" {
+		t.Errorf("expected source 'lead_capture', got '%s'", enquiry.Source)
+	}
+
+	// 3. Validation - missing name
+	resp, body = cmsDo(t, env, http.MethodPost, "/api/v1/cms/enquiries", `{"email":"test@example.com","subject":"Test","message":"Test message"}`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("missing name: expected 400, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	// 4. Validation - missing email
+	resp, body = cmsDo(t, env, http.MethodPost, "/api/v1/cms/enquiries", `{"name":"Test","subject":"Test","message":"Test message"}`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("missing email: expected 400, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	// 5. Validation - invalid email format
+	resp, body = cmsDo(t, env, http.MethodPost, "/api/v1/cms/enquiries", `{"name":"Test","email":"not-an-email","subject":"Test","message":"Test message"}`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("invalid email: expected 400, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	// 6. Validation - missing subject
+	resp, body = cmsDo(t, env, http.MethodPost, "/api/v1/cms/enquiries", `{"name":"Test","email":"test@example.com","message":"Test message"}`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("missing subject: expected 400, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	// 7. Validation - missing message
+	resp, body = cmsDo(t, env, http.MethodPost, "/api/v1/cms/enquiries", `{"name":"Test","email":"test@example.com","subject":"Test"}`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("missing message: expected 400, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	// 8. Validation - message too long
+	longMessage := make([]byte, 5001)
+	for i := range longMessage {
+		longMessage[i] = 'a'
+	}
+	resp, body = cmsDo(t, env, http.MethodPost, "/api/v1/cms/enquiries", fmt.Sprintf(`{"name":"Test","email":"test@example.com","subject":"Test","message":"%s"}`, string(longMessage)))
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("message too long: expected 400, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	// 9. Validation - invalid JSON
+	resp, body = cmsDo(t, env, http.MethodPost, "/api/v1/cms/enquiries", `{invalid json}`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("invalid JSON: expected 400, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	// 10. Admin list enquiries
+	resp, body = cmsDo(t, env, http.MethodGet, "/api/v1/admin/cms/enquiries", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list enquiries: expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+	var listResp cms_schema.ContactEnquiryListResponse
+	_ = json.Unmarshal(body, &listResp)
+	if listResp.Total < 2 {
+		t.Errorf("expected at least 2 enquiries, got %d", listResp.Total)
+	}
+
+	// 11. Admin list with status filter
+	resp, body = cmsDo(t, env, http.MethodGet, "/api/v1/admin/cms/enquiries?status=new", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list with status filter: expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+	_ = json.Unmarshal(body, &listResp)
+	if listResp.Total < 2 {
+		t.Errorf("expected at least 2 enquiries with status 'new', got %d", listResp.Total)
+	}
+
+	// 12. Admin list with source filter
+	resp, body = cmsDo(t, env, http.MethodGet, "/api/v1/admin/cms/enquiries?source=lead_capture", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list with source filter: expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+	_ = json.Unmarshal(body, &listResp)
+	if listResp.Total != 1 {
+		t.Errorf("expected 1 enquiry with source 'lead_capture', got %d", listResp.Total)
+	}
+
+	// 13. Admin list with search
+	resp, body = cmsDo(t, env, http.MethodGet, "/api/v1/admin/cms/enquiries?q=Jane", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list with search: expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+	_ = json.Unmarshal(body, &listResp)
+	if listResp.Total != 1 {
+		t.Errorf("expected 1 enquiry matching 'Jane', got %d", listResp.Total)
+	}
+
+	// 14. Admin get enquiry by code
+	resp, body = cmsDo(t, env, http.MethodGet, fmt.Sprintf("/api/v1/admin/cms/enquiries/%s", enquiry.ID), "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get enquiry by code: expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+	var detail cms_schema.ContactEnquiryResponse
+	_ = json.Unmarshal(body, &detail)
+	if detail.ID != enquiry.ID {
+		t.Errorf("expected enquiry ID '%s', got '%s'", enquiry.ID, detail.ID)
+	}
+
+	// 15. Admin get non-existent enquiry
+	resp, body = cmsDo(t, env, http.MethodGet, "/api/v1/admin/cms/enquiries/enq_nonexistent", "")
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("get non-existent enquiry: expected 404, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	// 16. Email normalization - should be lowercased
+	resp, body = cmsDo(t, env, http.MethodPost, "/api/v1/cms/enquiries", `{"name":"Test User","email":"TEST@EXAMPLE.COM","subject":"Test","message":"Test message"}`)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("email normalization: expected 202, got %d: %s", resp.StatusCode, string(body))
+	}
+	_ = json.Unmarshal(body, &enquiry)
+	if enquiry.Email != "test@example.com" {
+		t.Errorf("expected email to be lowercased to 'test@example.com', got '%s'", enquiry.Email)
+	}
+
+	// 17. Duplicate submissions allowed (no dedup at CMS level)
+	resp, body = cmsDo(t, env, http.MethodPost, "/api/v1/cms/enquiries", `{"name":"Jane Doe","email":"jane@example.com","subject":"Another inquiry","message":"Second message"}`)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("duplicate submission: expected 202, got %d: %s", resp.StatusCode, string(body))
+	}
+	_ = json.Unmarshal(body, &enquiry)
+	if enquiry.ID == "" {
+		t.Errorf("expected new enquiry ID for duplicate submission")
+	}
+
+	// 18. Optional fields - phone and company can be null
+	resp, body = cmsDo(t, env, http.MethodPost, "/api/v1/cms/enquiries", `{"name":"Minimal User","email":"minimal@example.com","subject":"Minimal","message":"Minimal message"}`)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("optional fields: expected 202, got %d: %s", resp.StatusCode, string(body))
+	}
+	var minimalEnquiry cms_schema.ContactEnquiryResponse
+	_ = json.Unmarshal(body, &minimalEnquiry)
+	if minimalEnquiry.Phone != nil {
+		t.Errorf("expected phone to be null")
+	}
+	if minimalEnquiry.Company != nil {
+		t.Errorf("expected company to be null")
+	}
+}

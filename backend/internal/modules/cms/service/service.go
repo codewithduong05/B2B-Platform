@@ -1256,3 +1256,103 @@ func (s *CMSService) ListLegalDocumentVersions(ctx context.Context, docType, sta
 	}
 	return out, total, nil
 }
+
+func (s *CMSService) SubmitContactEnquiry(ctx context.Context, req schema.SubmitContactEnquiryRequest) (*schema.ContactEnquiryResponse, error) {
+	if strings.TrimSpace(req.Name) == "" {
+		return nil, ErrInvalidInput
+	}
+	if strings.TrimSpace(req.Email) == "" {
+		return nil, ErrInvalidInput
+	}
+	if _, err := mail.ParseAddress(req.Email); err != nil {
+		return nil, ErrInvalidInput
+	}
+	if strings.TrimSpace(req.Subject) == "" {
+		return nil, ErrInvalidInput
+	}
+	if strings.TrimSpace(req.Message) == "" {
+		return nil, ErrInvalidInput
+	}
+	if len(req.Message) > 5000 {
+		return nil, ErrInvalidInput
+	}
+
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	source := "contact_form"
+	if req.Source != nil && strings.TrimSpace(*req.Source) != "" {
+		source = strings.TrimSpace(*req.Source)
+	}
+
+	code := newCode("enq_")
+	e, err := s.repo.CreateContactEnquiry(ctx, code, strings.TrimSpace(req.Name), email, req.Phone, req.Company, strings.TrimSpace(req.Subject), strings.TrimSpace(req.Message), source, req.IPAddress, req.UserAgent)
+	if err != nil {
+		return nil, fmt.Errorf("create contact enquiry: %w", err)
+	}
+
+	resp := toContactEnquiryResponse(e)
+	return &resp, nil
+}
+
+func (s *CMSService) ListContactEnquiries(ctx context.Context, status, source, search string, dateFrom, dateTo *time.Time, limit, offset int32) ([]schema.ContactEnquiryResponse, int, error) {
+	enquiries, total, err := s.repo.ListContactEnquiries(ctx, status, source, search, dateFrom, dateTo, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list contact enquiries: %w", err)
+	}
+	out := make([]schema.ContactEnquiryResponse, 0, len(enquiries))
+	for _, e := range enquiries {
+		out = append(out, toContactEnquiryResponse(e))
+	}
+	return out, total, nil
+}
+
+func (s *CMSService) GetContactEnquiryByCode(ctx context.Context, code string) (*schema.ContactEnquiryResponse, error) {
+	e, err := s.repo.GetContactEnquiryByCode(ctx, code)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("get contact enquiry: %w", err)
+	}
+	resp := toContactEnquiryResponse(e)
+	return &resp, nil
+}
+
+func (s *CMSService) UpdateContactEnquiryLeadID(ctx context.Context, code string, leadID int64) (*schema.ContactEnquiryResponse, error) {
+	e, err := s.repo.GetContactEnquiryByCode(ctx, code)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("get contact enquiry: %w", err)
+	}
+	updated, err := s.repo.UpdateContactEnquiryLeadID(ctx, e.ID, leadID)
+	if err != nil {
+		return nil, fmt.Errorf("update contact enquiry lead id: %w", err)
+	}
+	resp := toContactEnquiryResponse(updated)
+	return &resp, nil
+}
+
+func toContactEnquiryResponse(e repository.ContactEnquiry) schema.ContactEnquiryResponse {
+	resp := schema.ContactEnquiryResponse{
+		ID:        e.Code,
+		Name:      e.Name,
+		Email:     e.Email,
+		Phone:     e.Phone,
+		Company:   e.Company,
+		Subject:   e.Subject,
+		Message:   e.Message,
+		Source:    e.Source,
+		Status:    e.Status,
+		IPAddress: e.IPAddress,
+		UserAgent: e.UserAgent,
+		CreatedAt: e.CreatedAt,
+		UpdatedAt: e.UpdatedAt,
+		RoutedAt:  e.RoutedAt,
+	}
+	if e.LeadID != nil {
+		leadCode := fmt.Sprintf("lead_%d", *e.LeadID)
+		resp.LeadID = &leadCode
+	}
+	return resp
+}
