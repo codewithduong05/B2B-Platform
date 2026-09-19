@@ -1047,3 +1047,307 @@ func (r *CMSRepository) ListConfirmedSubscribersForExport(ctx context.Context) (
 	}
 	return subs, nil
 }
+
+type LegalDocument struct {
+	DocType          string
+	Title            string
+	CurrentVersion   *int
+	EffectiveAt      *time.Time
+	UpdatedAt        time.Time
+	UpdatedBy        *string
+	DraftTitle       *string
+	DraftBody        *string
+	DraftBodyFormat  string
+	DraftEffectiveAt *time.Time
+	DraftUpdatedAt   *time.Time
+	DraftUpdatedBy   *string
+}
+
+const legalDocumentColumns = `doc_type, title, current_version, effective_at, updated_at, updated_by, draft_title, draft_body, draft_body_format, draft_effective_at, draft_updated_at, draft_updated_by`
+
+func scanLegalDocument(row interface{ Scan(...any) error }) (LegalDocument, error) {
+	var d LegalDocument
+	var curVer pgtype.Int4
+	var effAt, draftEffAt, draftUpdAt pgtype.Timestamptz
+	var updBy, draftTitle, draftBody, draftUpdBy pgtype.Text
+	err := row.Scan(
+		&d.DocType, &d.Title, &curVer, &effAt, &d.UpdatedAt, &updBy,
+		&draftTitle, &draftBody, &d.DraftBodyFormat, &draftEffAt, &draftUpdAt, &draftUpdBy,
+	)
+	if err != nil {
+		return d, err
+	}
+	if curVer.Valid {
+		v := int(curVer.Int32)
+		d.CurrentVersion = &v
+	}
+	if effAt.Valid {
+		t := effAt.Time
+		d.EffectiveAt = &t
+	}
+	if updBy.Valid {
+		s := updBy.String
+		d.UpdatedBy = &s
+	}
+	if draftTitle.Valid {
+		s := draftTitle.String
+		d.DraftTitle = &s
+	}
+	if draftBody.Valid {
+		s := draftBody.String
+		d.DraftBody = &s
+	}
+	if draftEffAt.Valid {
+		t := draftEffAt.Time
+		d.DraftEffectiveAt = &t
+	}
+	if draftUpdAt.Valid {
+		t := draftUpdAt.Time
+		d.DraftUpdatedAt = &t
+	}
+	if draftUpdBy.Valid {
+		s := draftUpdBy.String
+		d.DraftUpdatedBy = &s
+	}
+	return d, nil
+}
+
+func (r *CMSRepository) CreateLegalDocument(ctx context.Context, docType, title string) (LegalDocument, error) {
+	_, err := r.conn().Exec(ctx, `
+		INSERT INTO cms.legal_document (doc_type, title)
+		VALUES ($1, $2)
+	`, docType, title)
+	if err != nil {
+		return LegalDocument{}, err
+	}
+	return r.GetLegalDocument(ctx, docType)
+}
+
+func (r *CMSRepository) GetLegalDocument(ctx context.Context, docType string) (LegalDocument, error) {
+	row := r.conn().QueryRow(ctx, `SELECT `+legalDocumentColumns+` FROM cms.legal_document WHERE doc_type = $1`, docType)
+	return scanLegalDocument(row)
+}
+
+func (r *CMSRepository) GetLegalDocumentForUpdate(ctx context.Context, docType string) (LegalDocument, error) {
+	row := r.conn().QueryRow(ctx, `SELECT `+legalDocumentColumns+` FROM cms.legal_document WHERE doc_type = $1 FOR UPDATE`, docType)
+	return scanLegalDocument(row)
+}
+
+func (r *CMSRepository) ListLegalDocuments(ctx context.Context, hasDraftFilter *bool, limit, offset int32) ([]LegalDocument, int, error) {
+	where := `1=1`
+	var args []any
+	argN := 1
+	if hasDraftFilter != nil {
+		if *hasDraftFilter {
+			where += ` AND draft_title IS NOT NULL`
+		} else {
+			where += ` AND draft_title IS NULL`
+		}
+	}
+	countQuery := `SELECT COUNT(*) FROM cms.legal_document WHERE ` + where
+	var total int
+	err := r.conn().QueryRow(ctx, countQuery, args...).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+	query := `SELECT ` + legalDocumentColumns + ` FROM cms.legal_document WHERE ` + where + ` ORDER BY doc_type ASC LIMIT $` + strconv.Itoa(argN) + ` OFFSET $` + strconv.Itoa(argN+1)
+	args = append(args, limit, offset)
+	rows, err := r.conn().Query(ctx, query, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	var docs []LegalDocument
+	for rows.Next() {
+		d, err := scanLegalDocument(rows)
+		if err != nil {
+			return nil, 0, err
+		}
+		docs = append(docs, d)
+	}
+	return docs, total, nil
+}
+
+func (r *CMSRepository) UpdateLegalDocumentDraft(ctx context.Context, docType, title, body, bodyFormat string, effectiveAt *time.Time, updatedBy *string, expectedUpdatedAt *time.Time) (LegalDocument, error) {
+	var ea pgtype.Timestamptz
+	var ubText pgtype.Text
+	if effectiveAt != nil {
+		ea = pgtype.Timestamptz{Time: *effectiveAt, Valid: true}
+	}
+	if updatedBy != nil {
+		ubText = pgtype.Text{String: *updatedBy, Valid: true}
+	}
+	if expectedUpdatedAt != nil {
+		tag, err := r.conn().Exec(ctx, `
+			UPDATE cms.legal_document
+			SET draft_title = $2, draft_body = $3, draft_body_format = $4, draft_effective_at = $5, draft_updated_at = NOW(), draft_updated_by = $6, updated_at = NOW(), updated_by = $6
+			WHERE doc_type = $1 AND updated_at = $7
+		`, docType, title, body, bodyFormat, ea, ubText, *expectedUpdatedAt)
+		if err != nil {
+			return LegalDocument{}, err
+		}
+		if tag.RowsAffected() == 0 {
+			return LegalDocument{}, ErrConcurrentModification
+		}
+	} else {
+		_, err := r.conn().Exec(ctx, `
+			UPDATE cms.legal_document
+			SET draft_title = $2, draft_body = $3, draft_body_format = $4, draft_effective_at = $5, draft_updated_at = NOW(), draft_updated_by = $6, updated_at = NOW(), updated_by = $6
+			WHERE doc_type = $1
+		`, docType, title, body, bodyFormat, ea, ubText)
+		if err != nil {
+			return LegalDocument{}, err
+		}
+	}
+	return r.GetLegalDocument(ctx, docType)
+}
+
+type LegalDocumentVersion struct {
+	ID          int64
+	DocType     string
+	Version     int
+	Title       string
+	Body        string
+	BodyFormat  string
+	Status      string
+	EffectiveAt time.Time
+	PublishedAt time.Time
+	CreatedAt   time.Time
+	CreatedBy   *string
+}
+
+const legalDocumentVersionColumns = `id, doc_type, version, title, body, body_format, status, effective_at, published_at, created_at, created_by`
+
+func scanLegalDocumentVersion(row interface{ Scan(...any) error }) (LegalDocumentVersion, error) {
+	var v LegalDocumentVersion
+	var createdBy pgtype.Text
+	err := row.Scan(
+		&v.ID, &v.DocType, &v.Version, &v.Title, &v.Body, &v.BodyFormat,
+		&v.Status, &v.EffectiveAt, &v.PublishedAt, &v.CreatedAt, &createdBy,
+	)
+	if err != nil {
+		return v, err
+	}
+	if createdBy.Valid {
+		s := createdBy.String
+		v.CreatedBy = &s
+	}
+	return v, nil
+}
+
+func (r *CMSRepository) GetNextVersion(ctx context.Context, docType string) (int, error) {
+	var maxVer pgtype.Int4
+	err := r.conn().QueryRow(ctx, `SELECT MAX(version) FROM cms.legal_document_version WHERE doc_type = $1`, docType).Scan(&maxVer)
+	if err != nil {
+		return 0, err
+	}
+	if maxVer.Valid {
+		return int(maxVer.Int32) + 1, nil
+	}
+	return 1, nil
+}
+
+func (r *CMSRepository) PublishLegalDocumentVersion(ctx context.Context, docType string, version int, title, body, bodyFormat string, effectiveAt time.Time, createdBy *string) (LegalDocumentVersion, error) {
+	var cb pgtype.Text
+	if createdBy != nil {
+		cb = pgtype.Text{String: *createdBy, Valid: true}
+	}
+	var id int64
+	err := r.conn().QueryRow(ctx, `
+		INSERT INTO cms.legal_document_version (doc_type, version, title, body, body_format, status, effective_at, published_at, created_by)
+		VALUES ($1, $2, $3, $4, $5, 'published', $6, NOW(), $7)
+		RETURNING id
+	`, docType, version, title, body, bodyFormat, effectiveAt, cb).Scan(&id)
+	if err != nil {
+		return LegalDocumentVersion{}, err
+	}
+	return r.GetLegalDocumentVersion(ctx, id)
+}
+
+func (r *CMSRepository) SupersedePreviousVersion(ctx context.Context, docType string, excludeVersion int) error {
+	_, err := r.conn().Exec(ctx, `
+		UPDATE cms.legal_document_version
+		SET status = 'superseded'
+		WHERE doc_type = $1 AND status = 'published' AND version != $2
+	`, docType, excludeVersion)
+	return err
+}
+
+func (r *CMSRepository) UpdateLegalDocumentCurrentVersion(ctx context.Context, docType string, version int, effectiveAt time.Time, updatedBy *string) error {
+	var ub pgtype.Text
+	if updatedBy != nil {
+		ub = pgtype.Text{String: *updatedBy, Valid: true}
+	}
+	_, err := r.conn().Exec(ctx, `
+		UPDATE cms.legal_document
+		SET current_version = $2, effective_at = $3, updated_at = NOW(), updated_by = $4,
+		    draft_title = NULL, draft_body = NULL, draft_body_format = 'markdown', draft_effective_at = NULL, draft_updated_at = NULL, draft_updated_by = NULL
+		WHERE doc_type = $1
+	`, docType, version, effectiveAt, ub)
+	return err
+}
+
+func (r *CMSRepository) GetLegalDocumentVersion(ctx context.Context, id int64) (LegalDocumentVersion, error) {
+	row := r.conn().QueryRow(ctx, `SELECT `+legalDocumentVersionColumns+` FROM cms.legal_document_version WHERE id = $1`, id)
+	return scanLegalDocumentVersion(row)
+}
+
+func (r *CMSRepository) GetLegalDocumentVersionByNumber(ctx context.Context, docType string, version int) (LegalDocumentVersion, error) {
+	row := r.conn().QueryRow(ctx, `SELECT `+legalDocumentVersionColumns+` FROM cms.legal_document_version WHERE doc_type = $1 AND version = $2`, docType, version)
+	return scanLegalDocumentVersion(row)
+}
+
+func (r *CMSRepository) GetCurrentEffectiveVersion(ctx context.Context, docType string) (LegalDocumentVersion, error) {
+	row := r.conn().QueryRow(ctx, `
+		SELECT `+legalDocumentVersionColumns+`
+		FROM cms.legal_document_version
+		WHERE doc_type = $1 AND status = 'published' AND effective_at <= NOW()
+		ORDER BY version DESC
+		LIMIT 1
+	`, docType)
+	return scanLegalDocumentVersion(row)
+}
+
+func (r *CMSRepository) ListLegalDocumentVersions(ctx context.Context, docType, status string, limit, offset int32) ([]LegalDocumentVersion, int, error) {
+	where := `doc_type = $1`
+	args := []any{docType}
+	argN := 2
+	if status != "" {
+		where += ` AND status = $` + strconv.Itoa(argN)
+		args = append(args, status)
+		argN++
+	}
+	countQuery := `SELECT COUNT(*) FROM cms.legal_document_version WHERE ` + where
+	var total int
+	err := r.conn().QueryRow(ctx, countQuery, args...).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+	query := `SELECT ` + legalDocumentVersionColumns + ` FROM cms.legal_document_version WHERE ` + where + ` ORDER BY version DESC LIMIT $` + strconv.Itoa(argN) + ` OFFSET $` + strconv.Itoa(argN+1)
+	args = append(args, limit, offset)
+	rows, err := r.conn().Query(ctx, query, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	var versions []LegalDocumentVersion
+	for rows.Next() {
+		v, err := scanLegalDocumentVersion(rows)
+		if err != nil {
+			return nil, 0, err
+		}
+		versions = append(versions, v)
+	}
+	return versions, total, nil
+}
+
+func (r *CMSRepository) GetLatestPublishedVersion(ctx context.Context, docType string) (LegalDocumentVersion, error) {
+	row := r.conn().QueryRow(ctx, `
+		SELECT `+legalDocumentVersionColumns+`
+		FROM cms.legal_document_version
+		WHERE doc_type = $1 AND status = 'published'
+		ORDER BY version DESC
+		LIMIT 1
+	`, docType)
+	return scanLegalDocumentVersion(row)
+}

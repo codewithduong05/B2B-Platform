@@ -983,3 +983,276 @@ func (s *CMSService) ExportNewsletterSubscribers(ctx context.Context) ([]schema.
 	}
 	return out, nil
 }
+
+var ErrNoDraft = errors.New("no draft to publish")
+
+var ErrDuplicateDocType = errors.New("duplicate doc_type")
+
+func isValidDocTypeSlug(s string) bool {
+	if len(s) < 3 || len(s) > 64 {
+		return false
+	}
+	for _, c := range s {
+		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-') {
+			return false
+		}
+	}
+	return true
+}
+
+func toLegalDocumentResponse(d repository.LegalDocument) schema.LegalDocument {
+	return schema.LegalDocument{
+		DocType:        d.DocType,
+		Title:          d.Title,
+		CurrentVersion: d.CurrentVersion,
+		HasDraft:       d.DraftTitle != nil,
+		EffectiveAt:    d.EffectiveAt,
+		UpdatedAt:      d.UpdatedAt,
+		UpdatedBy:      d.UpdatedBy,
+	}
+}
+
+func toLegalDocumentDraftResponse(d repository.LegalDocument) *schema.LegalDocumentDraft {
+	if d.DraftTitle == nil || d.DraftBody == nil {
+		return nil
+	}
+	draft := &schema.LegalDocumentDraft{
+		DocType:     d.DocType,
+		Title:       *d.DraftTitle,
+		Body:        *d.DraftBody,
+		BodyFormat:  d.DraftBodyFormat,
+		EffectiveAt: d.DraftEffectiveAt,
+		UpdatedBy:   d.DraftUpdatedBy,
+	}
+	if d.DraftUpdatedAt != nil {
+		draft.UpdatedAt = *d.DraftUpdatedAt
+	}
+	return draft
+}
+
+func toLegalDocumentVersionResponse(v repository.LegalDocumentVersion) schema.LegalDocumentVersion {
+	effAt := v.EffectiveAt
+	pubAt := v.PublishedAt
+	return schema.LegalDocumentVersion{
+		DocType:     v.DocType,
+		Version:     v.Version,
+		Title:       v.Title,
+		Body:        v.Body,
+		BodyFormat:  v.BodyFormat,
+		Status:      v.Status,
+		EffectiveAt: &effAt,
+		PublishedAt: &pubAt,
+		CreatedAt:   v.CreatedAt,
+		CreatedBy:   v.CreatedBy,
+	}
+}
+
+func toVersionSummary(v repository.LegalDocumentVersion) schema.LegalDocumentVersionSummary {
+	effAt := v.EffectiveAt
+	pubAt := v.PublishedAt
+	return schema.LegalDocumentVersionSummary{
+		Version:     v.Version,
+		Status:      v.Status,
+		EffectiveAt: &effAt,
+		PublishedAt: &pubAt,
+		CreatedBy:   v.CreatedBy,
+	}
+}
+
+func (s *CMSService) GetCurrentEffectiveVersion(ctx context.Context, docType string) (*schema.LegalDocumentVersion, error) {
+	if !isValidDocTypeSlug(docType) {
+		return nil, ErrInvalidInput
+	}
+	v, err := s.repo.GetCurrentEffectiveVersion(ctx, docType)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("get current effective version: %w", err)
+	}
+	resp := toLegalDocumentVersionResponse(v)
+	return &resp, nil
+}
+
+func (s *CMSService) GetLegalDocumentVersion(ctx context.Context, docType string, version int) (*schema.LegalDocumentVersion, error) {
+	if !isValidDocTypeSlug(docType) {
+		return nil, ErrInvalidInput
+	}
+	v, err := s.repo.GetLegalDocumentVersionByNumber(ctx, docType, version)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("get legal document version: %w", err)
+	}
+	if v.Status != "published" && v.Status != "superseded" {
+		return nil, ErrNotFound
+	}
+	resp := toLegalDocumentVersionResponse(v)
+	return &resp, nil
+}
+
+func (s *CMSService) ListLegalDocuments(ctx context.Context, hasDraftFilter *bool, limit, offset int32) ([]schema.LegalDocument, int, error) {
+	docs, total, err := s.repo.ListLegalDocuments(ctx, hasDraftFilter, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	out := make([]schema.LegalDocument, 0, len(docs))
+	for _, d := range docs {
+		out = append(out, toLegalDocumentResponse(d))
+	}
+	return out, total, nil
+}
+
+func (s *CMSService) CreateLegalDocument(ctx context.Context, req schema.CreateLegalDocumentRequest) (*schema.LegalDocument, error) {
+	docType := strings.TrimSpace(req.DocType)
+	title := strings.TrimSpace(req.Title)
+	if !isValidDocTypeSlug(docType) {
+		return nil, ErrInvalidInput
+	}
+	if title == "" {
+		return nil, ErrInvalidInput
+	}
+	d, err := s.repo.CreateLegalDocument(ctx, docType, title)
+	if err != nil {
+		if database.IsUniqueViolation(err) {
+			return nil, ErrDuplicateDocType
+		}
+		return nil, fmt.Errorf("create legal document: %w", err)
+	}
+	resp := toLegalDocumentResponse(d)
+	return &resp, nil
+}
+
+func (s *CMSService) GetLegalDocumentDetail(ctx context.Context, docType string) (*schema.LegalDocumentDetail, error) {
+	if !isValidDocTypeSlug(docType) {
+		return nil, ErrInvalidInput
+	}
+	d, err := s.repo.GetLegalDocument(ctx, docType)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("get legal document: %w", err)
+	}
+	versions, _, err := s.repo.ListLegalDocumentVersions(ctx, docType, "", 100, 0)
+	if err != nil {
+		return nil, fmt.Errorf("list legal document versions: %w", err)
+	}
+	summaries := make([]schema.LegalDocumentVersionSummary, 0, len(versions))
+	for _, v := range versions {
+		summaries = append(summaries, toVersionSummary(v))
+	}
+	detail := &schema.LegalDocumentDetail{
+		LegalDocument: toLegalDocumentResponse(d),
+		Draft:         toLegalDocumentDraftResponse(d),
+		Versions:      summaries,
+	}
+	if detail.Versions == nil {
+		detail.Versions = []schema.LegalDocumentVersionSummary{}
+	}
+	return detail, nil
+}
+
+func (s *CMSService) UpdateLegalDocumentDraft(ctx context.Context, docType string, req schema.UpdateLegalDocumentDraftRequest, updatedBy *string) (*schema.LegalDocumentDraft, error) {
+	if !isValidDocTypeSlug(docType) {
+		return nil, ErrInvalidInput
+	}
+	title := strings.TrimSpace(req.Title)
+	body := strings.TrimSpace(req.Body)
+	if title == "" || body == "" {
+		return nil, ErrInvalidInput
+	}
+	bodyFormat := req.BodyFormat
+	if bodyFormat == "" {
+		bodyFormat = "markdown"
+	}
+	if bodyFormat != "markdown" && bodyFormat != "html" && bodyFormat != "plaintext" {
+		return nil, ErrInvalidInput
+	}
+	d, err := s.repo.UpdateLegalDocumentDraft(ctx, docType, title, body, bodyFormat, req.EffectiveAt, updatedBy, req.ExpectedUpdatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		if errors.Is(err, repository.ErrConcurrentModification) {
+			return nil, ErrConcurrentModification
+		}
+		return nil, fmt.Errorf("update legal document draft: %w", err)
+	}
+	draft := toLegalDocumentDraftResponse(d)
+	return draft, nil
+}
+
+func (s *CMSService) PublishLegalDocumentDraft(ctx context.Context, docType string, updatedBy *string) (*schema.LegalDocumentVersion, error) {
+	if !isValidDocTypeSlug(docType) {
+		return nil, ErrInvalidInput
+	}
+	var result *schema.LegalDocumentVersion
+	err := s.db.WithTx(ctx, func(tx *database.Tx) error {
+		txRepo := repository.NewCMSRepositoryWithTx(tx)
+		d, err := txRepo.GetLegalDocumentForUpdate(ctx, docType)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrNotFound
+			}
+			return fmt.Errorf("get legal document for update: %w", err)
+		}
+		if d.DraftTitle == nil || d.DraftBody == nil {
+			return ErrNoDraft
+		}
+		latestPublished, err := txRepo.GetLatestPublishedVersion(ctx, docType)
+		if err == nil {
+			if latestPublished.Title == *d.DraftTitle && latestPublished.Body == *d.DraftBody {
+				resp := toLegalDocumentVersionResponse(latestPublished)
+				result = &resp
+				return nil
+			}
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("get latest published version: %w", err)
+		}
+		nextVersion, err := txRepo.GetNextVersion(ctx, docType)
+		if err != nil {
+			return fmt.Errorf("get next version: %w", err)
+		}
+		effectiveAt := time.Now()
+		if d.DraftEffectiveAt != nil {
+			effectiveAt = *d.DraftEffectiveAt
+		}
+		v, err := txRepo.PublishLegalDocumentVersion(ctx, docType, nextVersion, *d.DraftTitle, *d.DraftBody, d.DraftBodyFormat, effectiveAt, updatedBy)
+		if err != nil {
+			return fmt.Errorf("publish legal document version: %w", err)
+		}
+		if err := txRepo.SupersedePreviousVersion(ctx, docType, nextVersion); err != nil {
+			return fmt.Errorf("supersede previous version: %w", err)
+		}
+		if err := txRepo.UpdateLegalDocumentCurrentVersion(ctx, docType, nextVersion, effectiveAt, updatedBy); err != nil {
+			return fmt.Errorf("update current version: %w", err)
+		}
+		resp := toLegalDocumentVersionResponse(v)
+		result = &resp
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, ErrNoDraft) || errors.Is(err, ErrInvalidInput) || errors.Is(err, ErrNotFound) {
+			return nil, err
+		}
+		return nil, err
+	}
+	return result, nil
+}
+
+func (s *CMSService) ListLegalDocumentVersions(ctx context.Context, docType, status string, limit, offset int32) ([]schema.LegalDocumentVersion, int, error) {
+	if !isValidDocTypeSlug(docType) {
+		return nil, 0, ErrInvalidInput
+	}
+	versions, total, err := s.repo.ListLegalDocumentVersions(ctx, docType, status, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	out := make([]schema.LegalDocumentVersion, 0, len(versions))
+	for _, v := range versions {
+		out = append(out, toLegalDocumentVersionResponse(v))
+	}
+	return out, total, nil
+}

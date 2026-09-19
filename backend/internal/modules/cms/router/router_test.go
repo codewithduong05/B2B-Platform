@@ -471,3 +471,250 @@ func TestCMS_NewsletterSubscription(t *testing.T) {
 		t.Errorf("re-subscribe confirmed: expected 202, got %d: %s", resp.StatusCode, string(body))
 	}
 }
+
+func TestCMS_LegalDocuments(t *testing.T) {
+	env := setupCMSEnv(t)
+	_, _ = env.db.Pool.Exec(context.Background(), "TRUNCATE TABLE cms.legal_document_version RESTART IDENTITY CASCADE")
+	_, _ = env.db.Pool.Exec(context.Background(), "TRUNCATE TABLE cms.legal_document CASCADE")
+
+	docType := "terms_of_service"
+
+	// 1. Create document type
+	resp, body := cmsDo(t, env, http.MethodPost, "/api/v1/admin/cms/legal/documents", fmt.Sprintf(`{"doc_type":"%s","title":"Terms of Service"}`, docType))
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create document: expected 201, got %d: %s", resp.StatusCode, string(body))
+	}
+	var doc cms_schema.LegalDocument
+	_ = json.Unmarshal(body, &doc)
+	if doc.DocType != docType {
+		t.Errorf("expected doc_type %q, got %q", docType, doc.DocType)
+	}
+	if doc.Title != "Terms of Service" {
+		t.Errorf("expected title 'Terms of Service', got %q", doc.Title)
+	}
+	if doc.CurrentVersion != nil {
+		t.Errorf("expected current_version null, got %v", doc.CurrentVersion)
+	}
+	if doc.HasDraft {
+		t.Errorf("expected has_draft false, got true")
+	}
+
+	// 2. Create duplicate document type (should fail)
+	resp, body = cmsDo(t, env, http.MethodPost, "/api/v1/admin/cms/legal/documents", fmt.Sprintf(`{"doc_type":"%s","title":"Duplicate"}`, docType))
+	if resp.StatusCode != http.StatusConflict {
+		t.Errorf("duplicate create: expected 409, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	// 3. Create with invalid doc_type (should fail)
+	resp, body = cmsDo(t, env, http.MethodPost, "/api/v1/admin/cms/legal/documents", `{"doc_type":"INVALID","title":"Bad"}`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("invalid doc_type: expected 400, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	// 4. Get document detail (empty)
+	resp, body = cmsDo(t, env, http.MethodGet, fmt.Sprintf("/api/v1/admin/cms/legal/documents/%s", docType), "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get detail: expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+	var detail cms_schema.LegalDocumentDetail
+	_ = json.Unmarshal(body, &detail)
+	if detail.Draft != nil {
+		t.Errorf("expected no draft, got one")
+	}
+	if len(detail.Versions) != 0 {
+		t.Errorf("expected 0 versions, got %d", len(detail.Versions))
+	}
+
+	// 5. Update draft
+	resp, body = cmsDo(t, env, http.MethodPut, fmt.Sprintf("/api/v1/admin/cms/legal/documents/%s/draft", docType), `{"title":"Terms of Service v1","body":"## Terms\n\nContent here","body_format":"markdown"}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("update draft: expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+	var draft cms_schema.LegalDocumentDraft
+	_ = json.Unmarshal(body, &draft)
+	if draft.Title != "Terms of Service v1" {
+		t.Errorf("expected draft title 'Terms of Service v1', got %q", draft.Title)
+	}
+	if draft.Body != "## Terms\n\nContent here" {
+		t.Errorf("expected draft body, got %q", draft.Body)
+	}
+	if draft.BodyFormat != "markdown" {
+		t.Errorf("expected body_format 'markdown', got %q", draft.BodyFormat)
+	}
+
+	// 6. Update draft with empty body (should fail)
+	resp, body = cmsDo(t, env, http.MethodPut, fmt.Sprintf("/api/v1/admin/cms/legal/documents/%s/draft", docType), `{"title":"Test","body":""}`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("empty body: expected 400, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	// 7. Update draft with invalid body_format (should fail)
+	resp, body = cmsDo(t, env, http.MethodPut, fmt.Sprintf("/api/v1/admin/cms/legal/documents/%s/draft", docType), `{"title":"Test","body":"Content","body_format":"invalid"}`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("invalid body_format: expected 400, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	// 8. Publish draft
+	resp, body = cmsDo(t, env, http.MethodPost, fmt.Sprintf("/api/v1/admin/cms/legal/documents/%s/publish", docType), "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("publish: expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+	var v1 cms_schema.LegalDocumentVersion
+	_ = json.Unmarshal(body, &v1)
+	if v1.Version != 1 {
+		t.Errorf("expected version 1, got %d", v1.Version)
+	}
+	if v1.Status != "published" {
+		t.Errorf("expected status 'published', got %q", v1.Status)
+	}
+	if v1.Title != "Terms of Service v1" {
+		t.Errorf("expected title 'Terms of Service v1', got %q", v1.Title)
+	}
+
+	// 9. Get current effective version (public)
+	resp, body = cmsDo(t, env, http.MethodGet, fmt.Sprintf("/api/v1/cms/legal/%s", docType), "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get current effective: expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+	var current cms_schema.LegalDocumentVersion
+	_ = json.Unmarshal(body, &current)
+	if current.Version != 1 {
+		t.Errorf("expected current version 1, got %d", current.Version)
+	}
+
+	// 10. Get specific version (public)
+	resp, body = cmsDo(t, env, http.MethodGet, fmt.Sprintf("/api/v1/cms/legal/%s/versions/1", docType), "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get version 1: expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	// 11. Get non-existent version (should 404)
+	resp, body = cmsDo(t, env, http.MethodGet, fmt.Sprintf("/api/v1/cms/legal/%s/versions/999", docType), "")
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("get version 999: expected 404, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	// 12. Get current effective for non-existent doc_type (should 404)
+	resp, body = cmsDo(t, env, http.MethodGet, "/api/v1/cms/legal/nonexistent", "")
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("get nonexistent doc: expected 404, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	// 13. List documents (admin)
+	resp, body = cmsDo(t, env, http.MethodGet, "/api/v1/admin/cms/legal/documents", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list documents: expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+	var listResp struct {
+		Items []cms_schema.LegalDocument `json:"items"`
+		Total int                        `json:"total"`
+	}
+	_ = json.Unmarshal(body, &listResp)
+	if listResp.Total != 1 {
+		t.Errorf("expected 1 document, got %d", listResp.Total)
+	}
+
+	// 14. List versions (admin)
+	resp, body = cmsDo(t, env, http.MethodGet, fmt.Sprintf("/api/v1/admin/cms/legal/documents/%s/versions", docType), "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list versions: expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+	var versionsResp struct {
+		Items []cms_schema.LegalDocumentVersion `json:"items"`
+		Total int                               `json:"total"`
+	}
+	_ = json.Unmarshal(body, &versionsResp)
+	if versionsResp.Total != 1 {
+		t.Errorf("expected 1 version, got %d", versionsResp.Total)
+	}
+
+	// 15. Create new draft and publish (version 2)
+	resp, body = cmsDo(t, env, http.MethodPut, fmt.Sprintf("/api/v1/admin/cms/legal/documents/%s/draft", docType), `{"title":"Terms of Service v2","body":"## Updated Terms\n\nNew content"}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("update draft v2: expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+	resp, body = cmsDo(t, env, http.MethodPost, fmt.Sprintf("/api/v1/admin/cms/legal/documents/%s/publish", docType), "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("publish v2: expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+	var v2 cms_schema.LegalDocumentVersion
+	_ = json.Unmarshal(body, &v2)
+	if v2.Version != 2 {
+		t.Errorf("expected version 2, got %d", v2.Version)
+	}
+
+	// 16. Verify version 1 is now superseded
+	resp, body = cmsDo(t, env, http.MethodGet, fmt.Sprintf("/api/v1/cms/legal/%s/versions/1", docType), "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get version 1 after supersede: expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+	var v1After cms_schema.LegalDocumentVersion
+	_ = json.Unmarshal(body, &v1After)
+	if v1After.Status != "superseded" {
+		t.Errorf("expected version 1 status 'superseded', got %q", v1After.Status)
+	}
+
+	// 17. Current effective should now be version 2
+	resp, body = cmsDo(t, env, http.MethodGet, fmt.Sprintf("/api/v1/cms/legal/%s", docType), "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get current effective after v2: expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+	_ = json.Unmarshal(body, &current)
+	if current.Version != 2 {
+		t.Errorf("expected current version 2, got %d", current.Version)
+	}
+
+	// 18. Publish with no draft (should fail)
+	resp, body = cmsDo(t, env, http.MethodPost, fmt.Sprintf("/api/v1/admin/cms/legal/documents/%s/publish", docType), "")
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("publish no draft: expected 422, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	// 19. Test publish idempotency - create draft identical to current published
+	resp, body = cmsDo(t, env, http.MethodPut, fmt.Sprintf("/api/v1/admin/cms/legal/documents/%s/draft", docType), `{"title":"Terms of Service v2","body":"## Updated Terms\n\nNew content"}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("update draft for idempotency: expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+	resp, body = cmsDo(t, env, http.MethodPost, fmt.Sprintf("/api/v1/admin/cms/legal/documents/%s/publish", docType), "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("publish idempotent: expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+	var vIdempotent cms_schema.LegalDocumentVersion
+	_ = json.Unmarshal(body, &vIdempotent)
+	if vIdempotent.Version != 2 {
+		t.Errorf("idempotent publish: expected version 2 (no new version), got %d", vIdempotent.Version)
+	}
+
+	// 20. List documents with has_draft filter
+	_, _ = cmsDo(t, env, http.MethodPut, fmt.Sprintf("/api/v1/admin/cms/legal/documents/%s/draft", docType), `{"title":"Draft","body":"Draft content"}`)
+	resp, body = cmsDo(t, env, http.MethodGet, "/api/v1/admin/cms/legal/documents?has_draft=true", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list with has_draft=true: expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+	_ = json.Unmarshal(body, &listResp)
+	if listResp.Total != 1 {
+		t.Errorf("expected 1 document with draft, got %d", listResp.Total)
+	}
+
+	resp, body = cmsDo(t, env, http.MethodGet, "/api/v1/admin/cms/legal/documents?has_draft=false", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list with has_draft=false: expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+	_ = json.Unmarshal(body, &listResp)
+	if listResp.Total != 0 {
+		t.Errorf("expected 0 documents without draft, got %d", listResp.Total)
+	}
+
+	// 21. Get document detail with draft and versions
+	resp, body = cmsDo(t, env, http.MethodGet, fmt.Sprintf("/api/v1/admin/cms/legal/documents/%s", docType), "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get detail with draft: expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+	_ = json.Unmarshal(body, &detail)
+	if detail.Draft == nil {
+		t.Errorf("expected draft to exist")
+	}
+	if len(detail.Versions) < 2 {
+		t.Errorf("expected at least 2 versions, got %d", len(detail.Versions))
+	}
+}

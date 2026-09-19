@@ -39,6 +39,9 @@ func (rt *Router) RegisterRoutes(authMiddleware, adminMiddleware func(http.Handl
 		r.Post("/newsletter/subscribe", rt.handleSubscribe)
 		r.Post("/newsletter/confirm", rt.handleConfirmSubscription)
 		r.Post("/newsletter/unsubscribe", rt.handleUnsubscribe)
+
+		r.Get("/legal/{doc_type}", rt.handleGetCurrentEffectiveVersion)
+		r.Get("/legal/{doc_type}/versions/{version}", rt.handleGetLegalDocumentVersion)
 	})
 
 	rt.router.Get("/sitemap.xml", rt.handleSitemap)
@@ -81,6 +84,15 @@ func (rt *Router) RegisterRoutes(authMiddleware, adminMiddleware func(http.Handl
 			r.Get("/subscribers/{code}", rt.handleAdminGetSubscriber)
 			r.Delete("/subscribers/{code}", rt.handleAdminDeleteSubscriber)
 			r.Get("/stats", rt.handleAdminNewsletterStats)
+		})
+
+		r.Route("/legal", func(r chi.Router) {
+			r.Get("/documents", rt.handleAdminListLegalDocuments)
+			r.Post("/documents", rt.handleAdminCreateLegalDocument)
+			r.Get("/documents/{doc_type}", rt.handleAdminGetLegalDocumentDetail)
+			r.Put("/documents/{doc_type}/draft", rt.handleAdminUpdateLegalDocumentDraft)
+			r.Post("/documents/{doc_type}/publish", rt.handleAdminPublishLegalDocumentDraft)
+			r.Get("/documents/{doc_type}/versions", rt.handleAdminListLegalDocumentVersions)
 		})
 	})
 }
@@ -743,6 +755,192 @@ func (rt *Router) handleAdminNewsletterStats(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	rt.writeJSON(w, http.StatusOK, stats)
+}
+
+func (rt *Router) handleGetCurrentEffectiveVersion(w http.ResponseWriter, r *http.Request) {
+	docType := chi.URLParam(r, "doc_type")
+	v, err := rt.service.GetCurrentEffectiveVersion(r.Context(), docType)
+	if err != nil {
+		if errors.Is(err, service.ErrNotFound) {
+			rt.writeError(w, r, http.StatusNotFound, "not_found", "document version not found")
+			return
+		}
+		if errors.Is(err, service.ErrInvalidInput) {
+			rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "invalid doc_type")
+			return
+		}
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	rt.writeJSON(w, http.StatusOK, v)
+}
+
+func (rt *Router) handleGetLegalDocumentVersion(w http.ResponseWriter, r *http.Request) {
+	docType := chi.URLParam(r, "doc_type")
+	versionStr := chi.URLParam(r, "version")
+	version, err := strconv.Atoi(versionStr)
+	if err != nil || version <= 0 {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "invalid version number")
+		return
+	}
+	v, err := rt.service.GetLegalDocumentVersion(r.Context(), docType, version)
+	if err != nil {
+		if errors.Is(err, service.ErrNotFound) {
+			rt.writeError(w, r, http.StatusNotFound, "not_found", "document version not found")
+			return
+		}
+		if errors.Is(err, service.ErrInvalidInput) {
+			rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "invalid doc_type")
+			return
+		}
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	rt.writeJSON(w, http.StatusOK, v)
+}
+
+func (rt *Router) handleAdminListLegalDocuments(w http.ResponseWriter, r *http.Request) {
+	page, limit, offset := parsePage(r)
+	var hasDraftFilter *bool
+	if v := r.URL.Query().Get("has_draft"); v != "" {
+		b := v == "true"
+		hasDraftFilter = &b
+	}
+	docs, total, err := rt.service.ListLegalDocuments(r.Context(), hasDraftFilter, limit, offset)
+	if err != nil {
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	if docs == nil {
+		docs = []schema.LegalDocument{}
+	}
+	rt.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"items": docs, "page": page, "page_size": limit,
+		"total": total, "has_next": int(page)*int(limit) < total,
+	})
+}
+
+func (rt *Router) handleAdminCreateLegalDocument(w http.ResponseWriter, r *http.Request) {
+	var req schema.CreateLegalDocumentRequest
+	defer r.Body.Close()
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_body", "invalid request body")
+		return
+	}
+	doc, err := rt.service.CreateLegalDocument(r.Context(), req)
+	if err != nil {
+		if errors.Is(err, service.ErrInvalidInput) {
+			rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "doc_type must be a URL-safe slug (3-64 chars, lowercase, underscores, hyphens) and title is required")
+			return
+		}
+		if errors.Is(err, service.ErrDuplicateDocType) {
+			rt.writeError(w, r, http.StatusConflict, "duplicate_doc_type", "document type already exists")
+			return
+		}
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	rt.writeJSON(w, http.StatusCreated, doc)
+}
+
+func (rt *Router) handleAdminGetLegalDocumentDetail(w http.ResponseWriter, r *http.Request) {
+	docType := chi.URLParam(r, "doc_type")
+	detail, err := rt.service.GetLegalDocumentDetail(r.Context(), docType)
+	if err != nil {
+		if errors.Is(err, service.ErrNotFound) {
+			rt.writeError(w, r, http.StatusNotFound, "not_found", "document not found")
+			return
+		}
+		if errors.Is(err, service.ErrInvalidInput) {
+			rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "invalid doc_type")
+			return
+		}
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	rt.writeJSON(w, http.StatusOK, detail)
+}
+
+func (rt *Router) handleAdminUpdateLegalDocumentDraft(w http.ResponseWriter, r *http.Request) {
+	docType := chi.URLParam(r, "doc_type")
+	var req schema.UpdateLegalDocumentDraftRequest
+	defer r.Body.Close()
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_body", "invalid request body")
+		return
+	}
+	updatedBy := r.Context().Value("user_id")
+	var updatedByPtr *string
+	if uid, ok := updatedBy.(string); ok && uid != "" {
+		updatedByPtr = &uid
+	}
+	draft, err := rt.service.UpdateLegalDocumentDraft(r.Context(), docType, req, updatedByPtr)
+	if err != nil {
+		if errors.Is(err, service.ErrNotFound) {
+			rt.writeError(w, r, http.StatusNotFound, "not_found", "document not found")
+			return
+		}
+		if errors.Is(err, service.ErrInvalidInput) {
+			rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "title and body are required; body_format must be markdown, html, or plaintext")
+			return
+		}
+		if errors.Is(err, service.ErrConcurrentModification) {
+			rt.writeError(w, r, http.StatusConflict, "concurrent_modification", "the document was modified by another request; re-fetch and retry")
+			return
+		}
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	rt.writeJSON(w, http.StatusOK, draft)
+}
+
+func (rt *Router) handleAdminPublishLegalDocumentDraft(w http.ResponseWriter, r *http.Request) {
+	docType := chi.URLParam(r, "doc_type")
+	updatedBy := r.Context().Value("user_id")
+	var updatedByPtr *string
+	if uid, ok := updatedBy.(string); ok && uid != "" {
+		updatedByPtr = &uid
+	}
+	v, err := rt.service.PublishLegalDocumentDraft(r.Context(), docType, updatedByPtr)
+	if err != nil {
+		if errors.Is(err, service.ErrNotFound) {
+			rt.writeError(w, r, http.StatusNotFound, "not_found", "document not found")
+			return
+		}
+		if errors.Is(err, service.ErrNoDraft) {
+			rt.writeError(w, r, http.StatusUnprocessableEntity, "no_draft", "no draft exists to publish")
+			return
+		}
+		if errors.Is(err, service.ErrInvalidInput) {
+			rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "invalid doc_type")
+			return
+		}
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	rt.writeJSON(w, http.StatusOK, v)
+}
+
+func (rt *Router) handleAdminListLegalDocumentVersions(w http.ResponseWriter, r *http.Request) {
+	docType := chi.URLParam(r, "doc_type")
+	page, limit, offset := parsePage(r)
+	status := r.URL.Query().Get("status")
+	versions, total, err := rt.service.ListLegalDocumentVersions(r.Context(), docType, status, limit, offset)
+	if err != nil {
+		if errors.Is(err, service.ErrInvalidInput) {
+			rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "invalid doc_type")
+			return
+		}
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	if versions == nil {
+		versions = []schema.LegalDocumentVersion{}
+	}
+	rt.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"items": versions, "page": page, "page_size": limit,
+		"total": total, "has_next": int(page)*int(limit) < total,
+	})
 }
 
 func (rt *Router) writeJSON(w http.ResponseWriter, status int, data interface{}) {

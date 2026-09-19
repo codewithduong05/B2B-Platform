@@ -391,6 +391,14 @@ Prefixes are shown relative to `/api/v1`. **A** = authenticated, **S** = staff p
 | DELETE | `/admin/cms/newsletter/subscribers/{code}` | S | Remove subscriber |
 | GET | `/admin/cms/newsletter/subscribers/export` | S | Export subscribers (CSV) |
 | GET | `/admin/cms/newsletter/stats` | S | Subscription statistics |
+| GET | `/cms/legal/{doc_type}` | P | Current effective legal document |
+| GET | `/cms/legal/{doc_type}/versions/{version}` | P | Specific published version |
+| GET | `/admin/cms/legal/documents` | S | List legal documents |
+| POST | `/admin/cms/legal/documents` | S | Create a legal document type |
+| GET | `/admin/cms/legal/documents/{doc_type}` | S | Document detail with version history |
+| PUT | `/admin/cms/legal/documents/{doc_type}/draft` | S | Update draft version |
+| POST | `/admin/cms/legal/documents/{doc_type}/publish` | S | Publish draft as new version |
+| GET | `/admin/cms/legal/documents/{doc_type}/versions` | S | List all versions |
 
 #### Homepage builder contract
 
@@ -552,6 +560,123 @@ Newsletter subscriptions follow a **double opt-in** lifecycle. A subscriber prov
 **Scope.** This contract covers the subscription lifecycle only. Campaign management (create, schedule, send) and delivery statistics (open rates, bounce tracking) are out of scope for this specification and will be defined separately (A9.8 future slice).
 
 **Idempotency.** Newsletter mutations do not use idempotency keys (they are not financial operations). The token-based flows are naturally idempotent: a used token always returns `409`, and duplicate subscribe requests return `202` without side effects.
+
+#### Legal documents contract
+
+Legal documents are **versioned, immutable-once-published content** managed per document type (e.g. `terms_of_service`, `privacy_policy`, `cookie_policy`). Each document type maintains a draft (at most one) and a history of numbered published versions. Consent from buyers binds to a specific version number — when the version changes, re-consent may be required.
+
+**Document object**
+
+```json
+{
+  "doc_type": "terms_of_service",
+  "title": "Terms of Service",
+  "current_version": 3,
+  "has_draft": true,
+  "effective_at": "2026-09-01T00:00:00Z",
+  "updated_at": "2026-09-19T10:00:00Z",
+  "updated_by": "usr_..."
+}
+```
+
+| Field | Type | Rule |
+|---|---|---|
+| `doc_type` | string | URL-safe slug. Immutable after creation. Unique. Examples: `terms_of_service`, `privacy_policy`, `cookie_policy`. |
+| `title` | string | Human-readable display name. Editable via draft. |
+| `current_version` | int \| null | Latest effective published version number. Null if no version has been published yet. |
+| `has_draft` | bool | Whether an unpublished draft exists. |
+| `effective_at` | timestamp \| null | Effective date of the current version. Null if no published version. |
+| `updated_at` | timestamp | Last mutation time (draft edit, publish, or title change). |
+| `updated_by` | string | Staff user ID of the last editor. |
+
+**Version object**
+
+```json
+{
+  "doc_type": "terms_of_service",
+  "version": 3,
+  "title": "Terms of Service",
+  "body": "## 1. Acceptance of Terms\n\n...",
+  "body_format": "markdown",
+  "status": "published",
+  "effective_at": "2026-09-01T00:00:00Z",
+  "published_at": "2026-08-25T10:00:00Z",
+  "created_at": "2026-08-20T14:30:00Z",
+  "created_by": "usr_..."
+}
+```
+
+| Field | Type | Rule |
+|---|---|---|
+| `doc_type` | string | Parent document type. |
+| `version` | int | Sequential version number per document type (1, 2, 3, …). Assigned on publish. |
+| `title` | string | Document title at the time of this version. |
+| `body` | string | Full document content. |
+| `body_format` | string | Content format: `markdown`, `html`, or `plaintext`. Default `markdown`. |
+| `status` | string | `draft`, `published`, or `superseded`. |
+| `effective_at` | timestamp \| null | When this version takes legal effect. May be in the future (scheduled effectiveness). Null for drafts. |
+| `published_at` | timestamp \| null | When this version was published. Null for drafts. |
+| `created_at` | timestamp | When this version record was created (draft started or publish time). |
+| `created_by` | string | Staff user ID who created this version. |
+
+**Draft object**
+
+The draft is the in-progress next version. At most one draft exists per document type.
+
+```json
+{
+  "doc_type": "terms_of_service",
+  "title": "Terms of Service (v4 draft)",
+  "body": "## 1. Updated Terms\n\n...",
+  "body_format": "markdown",
+  "updated_at": "2026-09-19T10:05:00Z",
+  "updated_by": "usr_..."
+}
+```
+
+**Endpoint detail**
+
+| Endpoint | Behaviour |
+|---|---|
+| `GET /cms/legal/{doc_type}` | Returns the current effective published version. The "current effective" version is the latest published version whose `effective_at` is in the past (or null). If no published version exists, returns `404` with code `not_found`. Response includes the full version object. |
+| `GET /cms/legal/{doc_type}/versions/{version}` | Returns a specific published version by version number. Used for consent verification — the frontend compares the user's consented version with this response. If the version does not exist or is still a draft, returns `404` with code `not_found`. Only `published` and `superseded` versions are accessible; `draft` versions return `404`. |
+| `GET /admin/cms/legal/documents` | Paginated list of all document types (offset: `page`/`page_size`, max 100). Returns document objects with `current_version`, `has_draft`, and `effective_at`. Sorted by `doc_type` ascending. Filter by `has_draft=true` to show only documents with pending drafts. |
+| `POST /admin/cms/legal/documents` | Creates a new document type. Accepts `{ "doc_type": "...", "title": "..." }`. The `doc_type` must be a URL-safe slug (lowercase, underscores, hyphens only, 3–64 chars). Returns `201` with the document object. Returns `409` with code `duplicate_doc_type` if the type already exists. |
+| `GET /admin/cms/legal/documents/{doc_type}` | Returns the document object plus the draft (if any) and a summary of all versions (version number, status, effective_at, published_at, created_by). The draft body is included inline; version bodies are omitted (use the versions list endpoint for full content). |
+| `PUT /admin/cms/legal/documents/{doc_type}/draft` | Creates or replaces the draft. Accepts `{ "title": "...", "body": "...", "body_format": "markdown", "effective_at": "..." }`. The `body` must be non-empty. The `effective_at` is optional — if provided, it is the proposed effective date for the next publish; if omitted, the version will be effective immediately upon publish. Uses optimistic locking: request includes `expected_updated_at`; mismatch returns `409` with code `concurrent_modification`. Returns the draft object. |
+| `POST /admin/cms/legal/documents/{doc_type}/publish` | Publishes the current draft as a new version. The draft's status transitions to `published`, it receives the next sequential version number, and the previous published version (if any) transitions to `superseded`. The `effective_at` from the draft is used; if null, it defaults to `now()`. Returns the newly published version object. Returns `422` with code `no_draft` if no draft exists. Idempotent — if the draft is identical to the current published version (same body and title), returns `200` with the existing version (no new version created). Uses a row-level lock to prevent concurrent publishes. |
+| `GET /admin/cms/legal/documents/{doc_type}/versions` | Paginated list of all versions for a document type (offset: `page`/`page_size`, max 100). Returns full version objects including body. Filter by `status` (`draft`, `published`, `superseded`). Sorted by `version` descending (newest first). |
+
+**Validation**
+
+| Condition | Status | Code |
+|---|---|---|
+| `doc_type` missing, empty, or not URL-safe slug | 400 | `invalid_request` |
+| `doc_type` already exists on create | 409 | `duplicate_doc_type` |
+| `title` missing or empty | 400 | `invalid_request` |
+| `body` missing or empty on draft update | 400 | `invalid_request` |
+| `body_format` not one of `markdown`, `html`, `plaintext` | 400 | `invalid_request` |
+| `effective_at` not a valid RFC 3339 timestamp | 400 | `invalid_request` |
+| `expected_updated_at` mismatch on draft update | 409 | `concurrent_modification` |
+| Publish with no draft | 422 | `no_draft` |
+| Document type not found | 404 | `not_found` |
+| Version not found or is a draft | 404 | `not_found` |
+
+**Version lifecycle.** A document type begins with no versions. A staff member creates a draft (via PUT), edits it, then publishes it. On publish: (1) the draft becomes `published` with the next version number, (2) the previous published version (if any) becomes `superseded`, (3) the document's `current_version` is updated. Published and superseded versions are immutable — their body, title, and metadata cannot be changed. A new draft can be started at any time to prepare the next version.
+
+**Draft semantics.** At most one draft exists per document type. Creating a draft when one already exists replaces it (full replacement, same as the homepage builder PUT pattern). The draft is not visible on public endpoints. The draft's `effective_at` is a proposal — it becomes the version's `effective_at` on publish.
+
+**Publish semantics.** Publish is a server-side transition: draft → published, previous published → superseded. The version number is assigned atomically (MAX(version) + 1 for the document type). If `effective_at` is null on the draft, it defaults to `now()` on publish. Publish uses a row-level lock (`SELECT … FOR UPDATE`) to prevent two simultaneous publishes from interleaving. Publish is idempotent when the draft body and title are identical to the current published version — no new version is created, and the existing version is returned.
+
+**Consent binding.** A buyer's consent is bound to a specific `{doc_type, version}` pair. The public endpoint `GET /cms/legal/{doc_type}/versions/{version}` allows the frontend to retrieve the exact content the user consented to. The frontend compares the user's consented version number with `current_version` from `GET /cms/legal/{doc_type}` to determine if re-consent is needed. Consent recording and management are outside the scope of this contract (handled by the identity/buyer module).
+
+**Concurrency.** The draft PUT uses optimistic locking via `expected_updated_at`. The publish POST uses a row-level lock. These follow the same patterns as the homepage builder.
+
+**Immutability.** Once published, a version's `body`, `title`, `body_format`, and `effective_at` are immutable. The `status` field transitions from `published` to `superseded` when a new version is published, but no other fields change. There is no endpoint to edit a published version.
+
+**Idempotency.** Draft PUT is not idempotent (it replaces the draft). Publish POST is conditionally idempotent — if the draft is identical to the current version, no new version is created. Document create POST returns `409` on duplicate `doc_type`.
+
+**Scope.** This contract covers legal document versioning and public retrieval. Consent recording, consent history, re-consent prompting, and consent revocation are out of scope for this specification (A9.9 future slice or identity module). No approval workflow — any staff member with `cms.legal` can publish.
 
 ### `suppliers`
 

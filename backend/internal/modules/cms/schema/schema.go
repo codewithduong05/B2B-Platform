@@ -223,3 +223,79 @@ type SubscriberStatsResponse struct {
 	SubscribedToday   int `json:"subscribed_today"`
 	SubscribedLast30D int `json:"subscribed_last_30_days"`
 }
+
+type LegalDocument struct {
+	DocType        string     `json:"doc_type"`
+	Title          string     `json:"title"`
+	CurrentVersion *int       `json:"current_version"`
+	HasDraft       bool       `json:"has_draft"`
+	EffectiveAt    *time.Time `json:"effective_at,omitempty"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+	UpdatedBy      *string    `json:"updated_by,omitempty"`
+}
+
+type LegalDocumentDraft struct {
+	DocType        string     `json:"doc_type"`
+	Title          string     `json:"title"`
+	Body           string     `json:"body"`
+	BodyFormat     string     `json:"body_format"`
+	EffectiveAt    *time.Time `json:"effective_at,omitempty"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+	UpdatedBy      *string    `json:"updated_by,omitempty"`
+}
+
+type LegalDocumentVersion struct {
+	DocType     string     `json:"doc_type"`
+	Version     int        `json:"version"`
+	Title       string     `json:"title"`
+	Body        string     `json:"body"`
+	BodyFormat  string     `json:"body_format"`
+	Status      string     `json:"status"`
+	EffectiveAt *time.Time `json:"effective_at,omitempty"`
+	PublishedAt *time.Time `json:"published_at,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	CreatedBy   *string    `json:"created_by,omitempty"`
+}
+
+type LegalDocumentDetail struct {
+	LegalDocument
+	Draft    *LegalDocumentDraft            `json:"draft,omitempty"`
+	Versions []LegalDocumentVersionSummary  `json:"versions,omitempty"`
+}
+
+type LegalDocumentVersionSummary struct {
+	Version     int        `json:"version"`
+	Status      string     `json:"status"`
+	EffectiveAt *time.Time `json:"effective_at,omitempty"`
+	PublishedAt *time.Time `json:"published_at,omitempty"`
+	CreatedBy   *string    `json:"created_by,omitempty"`
+}
+
+type CreateLegalDocumentRequest struct {
+	DocType string `json:"doc_type"`
+	Title   string `json:"title"`
+}
+
+type UpdateLegalDocumentDraftRequest struct {
+	Title             string     `json:"title"`
+	Body              string     `json:"body"`
+	BodyFormat        string     `json:"body_format,omitempty"`
+	EffectiveAt       *time.Time `json:"effective_at,omitempty"`
+	ExpectedUpdatedAt *time.Time `json:"expected_updated_at,omitempty"`
+}
+
+type LegalDocumentListResponse struct {
+	Items    []LegalDocument `json:"items"`
+	Page     int32           `json:"page"`
+	PageSize int32           `json:"page_size"`
+	Total    int             `json:"total"`
+	HasNext  bool            `json:"has_next"`
+}
+
+type LegalDocumentVersionListResponse struct {
+	Items    []LegalDocumentVersion `json:"items"`
+	Page     int32                  `json:"page"`
+	PageSize int32                  `json:"page_size"`
+	Total    int                    `json:"total"`
+	HasNext  bool                   `json:"has_next"`
+}
