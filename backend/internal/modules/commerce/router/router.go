@@ -255,6 +255,10 @@ func (rt *Router) handleCheckout(w http.ResponseWriter, r *http.Request) {
 			rt.writeError(w, r, http.StatusConflict, "checkout_in_flight", "checkout already in progress for this key")
 		case service.ErrCheckoutConflict:
 			rt.writeError(w, r, http.StatusConflict, "checkout_conflict", "cart was consumed by another checkout")
+		case service.ErrCreditHold:
+			rt.writeError(w, r, http.StatusUnprocessableEntity, "credit_hold", "buyer credit account is on hold")
+		case service.ErrCreditLimitExceeded:
+			rt.writeError(w, r, http.StatusUnprocessableEntity, "credit_limit_exceeded", "order exceeds available credit")
 		default:
 			rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
 		}

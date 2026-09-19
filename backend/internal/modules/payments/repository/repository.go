@@ -190,6 +190,20 @@ func (r *PaymentRepository) GetIntentByCode(ctx context.Context, code string) (P
 	return i, err
 }
 
+func (r *PaymentRepository) GetIntentByID(ctx context.Context, id int64) (PaymentIntent, error) {
+	var i PaymentIntent
+	var methodID *int64
+	var methodCode *string
+	err := r.conn().QueryRow(ctx, `
+		SELECT `+intentColumns+`
+		`+intentFrom+`
+		WHERE pi.id = $1 AND pi.deleted_at IS NULL
+	`, id).Scan(scanIntent(&i, &methodID, &methodCode)...)
+	i.PaymentMethodID = methodID
+	i.MethodCode = methodCode
+	return i, err
+}
+
 func (r *PaymentRepository) GetIntentByIDForUpdate(ctx context.Context, id int64) (PaymentIntent, error) {
 	var i PaymentIntent
 	var methodID *int64

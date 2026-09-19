@@ -15,7 +15,6 @@ import (
 
 	"github.com/atlas-platform/backend/internal/database"
 	commerce_service "github.com/atlas-platform/backend/internal/modules/commerce/service"
-	"github.com/atlas-platform/backend/internal/modules/payments/events"
 	"github.com/atlas-platform/backend/internal/modules/payments/repository"
 	"github.com/atlas-platform/backend/internal/modules/payments/schema"
 	"github.com/jackc/pgx/v5"
@@ -53,10 +52,11 @@ type EventPublisher interface {
 }
 
 type PaymentService struct {
-	db          *database.DB
-	repo        *repository.PaymentRepository
-	commerceSvc *commerce_service.CommerceService
-	publisher   EventPublisher
+	db              *database.DB
+	repo            *repository.PaymentRepository
+	commerceSvc     *commerce_service.CommerceService
+	publisher       EventPublisher
+	webhookSecrets  map[string]string
 }
 
 func NewPaymentService(
@@ -254,35 +254,7 @@ func (s *PaymentService) MarkIntent(ctx context.Context, actor int64, code strin
 		return nil, fmt.Errorf("get intent: %w", err)
 	}
 
-	target := IntentStatusFailed
-	result := "failed"
-	eventType := events.EventIntentFailed
-	if succeeded {
-		target = IntentStatusSucceeded
-		result = "succeeded"
-		eventType = events.EventIntentSucceeded
-	}
-
-	var updated repository.PaymentIntent
-	err = s.db.WithTx(ctx, func(tx *database.Tx) error {
-		txRepo := repository.NewPaymentRepositoryWithTx(tx)
-		locked, err := txRepo.GetIntentByIDForUpdate(ctx, intent.ID)
-		if err != nil {
-			return fmt.Errorf("lock intent: %w", err)
-		}
-		if isTerminalIntent(locked.Status) {
-			return ErrIntentTerminal
-		}
-		if _, err := txRepo.CreateAttempt(ctx, locked.ID, result, nil, note, &actor); err != nil {
-			return fmt.Errorf("record attempt: %w", err)
-		}
-		u, err := txRepo.UpdateIntentStatus(ctx, locked.ID, target)
-		if err != nil {
-			return fmt.Errorf("update intent status: %w", err)
-		}
-		updated = u
-		return nil
-	})
+	updated, err := s.markIntentLocked(ctx, actor, intent.ID, succeeded, note)
 	if err != nil {
 		return nil, err
 	}
@@ -300,17 +272,7 @@ func (s *PaymentService) MarkIntent(ctx context.Context, actor int64, code strin
 		}
 	}
 
-	if s.publisher != nil {
-		_ = s.publisher.Publish(ctx, eventType, events.NewEnvelope(
-			eventType,
-			events.IntentPayload{
-				IntentCode: updated.Code, BuyerID: updated.BuyerID,
-				OrderCode: updated.OrderCode, AmountMinor: updated.AmountMinor,
-				Currency: updated.Currency,
-			},
-			"",
-		))
-	}
+	s.publishIntentEvent(ctx, updated, succeeded)
 
 	return s.withAttemptsResponse(ctx, updated)
 }

@@ -32,6 +32,8 @@ var (
 	ErrCheckoutConflict    = errors.New("cart was consumed by another checkout")
 	ErrInvalidIdemKey      = errors.New("invalid idempotency key")
 	ErrOrderNotFound       = errors.New("order not found")
+	ErrCreditHold          = errors.New("buyer credit account is on hold")
+	ErrCreditLimitExceeded = errors.New("order exceeds available credit")
 )
 
 // EventPublisher mirrors the inventory module's publisher shape: routing key
@@ -41,15 +43,24 @@ type EventPublisher interface {
 	Publish(ctx context.Context, routingKey string, payload interface{}) error
 }
 
+// CreditChecker is implemented by the payments module (which owns credit
+// accounts). The interface lives here so commerce never imports payments
+// (payments already depends on commerce — the reverse would be a cycle).
+// A nil checker disables the gate.
+type CreditChecker interface {
+	CheckCredit(ctx context.Context, buyerID, orderTotalMinor int64) error
+}
+
 type CommerceService struct {
-	db           *database.DB
-	repo         *repository.CommerceRepository
-	productRepo  *catalog_repo.ProductRepository
-	supplierRepo *catalog_repo.SupplierRepository
-	unitRepo     *catalog_repo.UnitRepository
-	pricingSvc   *pricing_service.PriceListService
-	inventorySvc *inventory_service.InventoryService
-	publisher    EventPublisher
+	db              *database.DB
+	repo            *repository.CommerceRepository
+	productRepo     *catalog_repo.ProductRepository
+	supplierRepo    *catalog_repo.SupplierRepository
+	unitRepo        *catalog_repo.UnitRepository
+	pricingSvc      *pricing_service.PriceListService
+	inventorySvc    *inventory_service.InventoryService
+	publisher       EventPublisher
+	creditChecker   CreditChecker
 }
 
 func NewCommerceService(
@@ -68,6 +79,11 @@ func NewCommerceService(
 		inventorySvc: inventorySvc,
 		publisher:    publisher,
 	}
+}
+
+// SetCreditChecker wires the optional credit gate (payments module).
+func (s *CommerceService) SetCreditChecker(c CreditChecker) {
+	s.creditChecker = c
 }
 
 func (s *CommerceService) getOrCreateCart(ctx context.Context, buyerID int64) (repository.Cart, error) {

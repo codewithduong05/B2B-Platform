@@ -196,6 +196,18 @@ func (s *CommerceService) Checkout(ctx context.Context, buyerID int64, idemKey s
 		return fail(nil, err)
 	}
 
+	// Credit gate (optional; wired by the payments module). Rejects before
+	// any reservation so a blocked buyer holds no stock.
+	if s.creditChecker != nil {
+		var estimate int64
+		for _, v := range valid {
+			estimate += v.lineTotal
+		}
+		if err := s.creditChecker.CheckCredit(ctx, buyerID, estimate); err != nil {
+			return fail(nil, err)
+		}
+	}
+
 	// Availability pre-check (best-effort; ReserveStock remains authoritative
 	// under concurrency).
 	if err := s.precheckAvailability(ctx, valid); err != nil {

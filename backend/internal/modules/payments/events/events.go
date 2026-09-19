@@ -12,6 +12,7 @@ import (
 const (
 	EventIntentSucceeded = "payments.intent.succeeded"
 	EventIntentFailed    = "payments.intent.failed"
+	EventRefundIssued    = "payments.refund.issued"
 	EventVersionV1       = 1
 )
 
@@ -30,6 +31,15 @@ type IntentPayload struct {
 	OrderCode  string `json:"order_code"`
 	AmountMinor int64 `json:"amount_minor"`
 	Currency   string `json:"currency"`
+}
+
+type RefundPayload struct {
+	RefundCode  string `json:"refund_code"`
+	IntentCode  string `json:"intent_code"`
+	BuyerID     int64  `json:"buyer_id"`
+	OrderCode   string `json:"order_code"`
+	AmountMinor int64  `json:"amount_minor"`
+	Currency    string `json:"currency"`
 }
 
 func NewEnvelope(eventType string, payload interface{}, correlationID string) Envelope {

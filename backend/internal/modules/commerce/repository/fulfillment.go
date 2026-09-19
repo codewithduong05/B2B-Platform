@@ -406,6 +406,20 @@ func (r *CommerceRepository) UpdateInvoiceStatus(ctx context.Context, id int64, 
 	return inv, err
 }
 
+// RestoreInvoiceBalance credits an amount back onto an invoice balance,
+// capped at the invoice total. Used by refund application.
+func (r *CommerceRepository) RestoreInvoiceBalance(ctx context.Context, id, amountMinor int64) (Invoice, error) {
+	var inv Invoice
+	err := r.conn().QueryRow(ctx, `
+		UPDATE commerce.invoice
+		SET balance_minor = LEAST(total_minor, balance_minor + $2), updated_at = NOW()
+		WHERE id = $1 AND deleted_at IS NULL
+		RETURNING id, code, order_id, subtotal_minor, total_minor, balance_minor, currency, status, issued_at, created_at, updated_at
+	`, id, amountMinor).Scan(&inv.ID, &inv.Code, &inv.OrderID, &inv.SubtotalMinor, &inv.TotalMinor,
+		&inv.BalanceMinor, &inv.Currency, &inv.Status, &inv.IssuedAt, &inv.CreatedAt, &inv.UpdatedAt)
+	return inv, err
+}
+
 // ApplyInvoicePayment reduces invoice balances oldest-first, returning the
 // unallocated remainder. Caller must run inside a transaction for atomicity.
 func (r *CommerceRepository) ApplyInvoicePayment(ctx context.Context, orderID, amountMinor int64) (int64, error) {

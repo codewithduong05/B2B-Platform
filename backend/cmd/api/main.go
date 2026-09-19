@@ -26,6 +26,18 @@ import (
 
 var version = "dev"
 
+// webhookSecret reads a per-provider webhook HMAC secret. Local default is
+// explicit and logged by the caller environment, never a production value.
+func webhookSecret(provider string) string {
+	if v := os.Getenv("PAYMENTS_WEBHOOK_SECRET_" + provider); v != "" {
+		return v
+	}
+	if v := os.Getenv("PAYMENTS_WEBHOOK_SECRET"); v != "" {
+		return v
+	}
+	return "local-dev-secret"
+}
+
 func main() {
 	ctx := context.Background()
 
@@ -76,6 +88,12 @@ func main() {
 
 	// Initialize payments module services (nil publisher: best-effort events)
 	paymentService := payments.NewService(db, commerceService, nil)
+	paymentService.SetWebhookSecrets(map[string]string{
+		"sim":  webhookSecret("sim"),
+		"bank": webhookSecret("bank"),
+	})
+	// Credit gate for checkout (optional seam; nil disables).
+	commerceService.SetCreditChecker(paymentService)
 
 	healthHandler := health.New(db, nil, version)
 	srv := server.New(cfg, healthHandler)
@@ -121,6 +139,8 @@ func main() {
 		adminMiddleware(nil),
 	)
 	srv.Router().Mount("/api/v1", paymentsRouter.ChiRouter())
+	// Provider webhooks mount outside /api/v1 per contract.
+	srv.Router().Mount("/", paymentsRouter.WebhookRouter())
 
 	if err := srv.Start(ctx); err != nil {
 		slog.ErrorContext(ctx, "failed to start server", slog.String("error", err.Error()))

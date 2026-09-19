@@ -5,6 +5,7 @@ package router
 // tests inject a staff-set check).
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -62,7 +63,23 @@ func (rt *Router) RegisterRoutes(authMiddleware, adminMiddleware func(http.Handl
 		r.Get("/", rt.handleAdminListIntents)
 		r.Post("/intents/{code}/complete", rt.handleMarkComplete)
 		r.Post("/intents/{code}/fail", rt.handleMarkFailed)
+		r.Post("/intents/{code}/refund", rt.handleRequestRefund)
+		r.Post("/refunds/{id}/approve", rt.handleApproveRefund)
+		r.Post("/refunds/{id}/reject", rt.handleRejectRefund)
+		r.Get("/reconciliation", rt.handleReconciliation)
+		r.Get("/credit/{buyer_id}", rt.handleGetCredit)
+		r.Put("/credit/{buyer_id}", rt.handleSetCredit)
 	})
+}
+
+// WebhookRouter serves provider callbacks outside /api/v1 (contract:
+// /webhooks/payments/{provider}). No auth middleware: verification is by
+// HMAC signature. Mount at "/" in main.
+func (rt *Router) WebhookRouter() chi.Router {
+	r := chi.NewRouter()
+	r.Use(middleware.RequestID)
+	r.Post("/webhooks/payments/{provider}", rt.handleWebhook)
+	return r
 }
 
 func principalID(r *http.Request) int64 {
@@ -226,4 +243,181 @@ func (rt *Router) writeError(w http.ResponseWriter, r *http.Request, status int,
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(body)
+}
+
+func (rt *Router) handleWebhook(w http.ResponseWriter, r *http.Request) {
+	provider := chi.URLParam(r, "provider")
+	if provider == "" {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "provider is required")
+		return
+	}
+	defer r.Body.Close()
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(r.Body); err != nil {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_body", "cannot read request body")
+		return
+	}
+	body := buf.Bytes()
+
+	outcome, err := rt.service.HandleWebhook(r.Context(), provider, body,
+		r.Header.Get("X-Webhook-Timestamp"), r.Header.Get("X-Webhook-Signature"))
+	if err != nil {
+		switch err {
+		case service.ErrWebhookUnauthorized, service.ErrWebhookStale:
+			rt.writeError(w, r, http.StatusUnauthorized, "webhook_unauthorized", "invalid webhook signature or timestamp")
+		case service.ErrWebhookInvalid:
+			rt.writeError(w, r, http.StatusBadRequest, "invalid_body", "invalid webhook payload")
+		default:
+			rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		}
+		return
+	}
+	if outcome.Status == "unmatched" || outcome.Status == "terminal_conflict" {
+		rt.writeJSON(w, http.StatusAccepted, outcome)
+		return
+	}
+	rt.writeJSON(w, http.StatusOK, outcome)
+}
+
+func (rt *Router) handleRequestRefund(w http.ResponseWriter, r *http.Request) {
+	code := chi.URLParam(r, "code")
+	if code == "" {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "intent code is required")
+		return
+	}
+	var req schema.RequestRefundRequest
+	if r.ContentLength != 0 {
+		defer r.Body.Close()
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			rt.writeError(w, r, http.StatusBadRequest, "invalid_body", "invalid request body")
+			return
+		}
+	} else {
+		defer r.Body.Close()
+	}
+	resp, err := rt.service.RequestRefund(r.Context(), principalID(r), code, req.AmountMinor, req.Reason)
+	if err != nil {
+		switch err {
+		case service.ErrIntentNotFound:
+			rt.writeError(w, r, http.StatusNotFound, "intent_not_found", "payment intent not found")
+		case service.ErrRefundState:
+			rt.writeError(w, r, http.StatusUnprocessableEntity, "refund_state", "intent cannot be refunded in its current state")
+		case service.ErrExceedsBalance:
+			rt.writeError(w, r, http.StatusUnprocessableEntity, "refund_exceeds_captured", "refund exceeds captured amount")
+		case service.ErrInvalidIntent:
+			rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "amount and reason are required")
+		default:
+			rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		}
+		return
+	}
+	w.Header().Set("Location", "/api/v1/admin/payments/refunds")
+	rt.writeJSON(w, http.StatusCreated, resp)
+}
+
+func (rt *Router) handleApproveRefund(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseRefundID(w, r, rt)
+	if !ok {
+		return
+	}
+	resp, err := rt.service.ApproveRefund(r.Context(), principalID(r), id)
+	if err != nil {
+		switch err {
+		case service.ErrRefundNotFound:
+			rt.writeError(w, r, http.StatusNotFound, "refund_not_found", "refund not found")
+		case service.ErrRefundState:
+			rt.writeError(w, r, http.StatusUnprocessableEntity, "refund_state", "refund is not actionable")
+		case service.ErrRefundSelfApproval:
+			rt.writeError(w, r, http.StatusForbidden, "refund_approval_required", "a second approver is required")
+		default:
+			rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		}
+		return
+	}
+	rt.writeJSON(w, http.StatusOK, resp)
+}
+
+func (rt *Router) handleRejectRefund(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseRefundID(w, r, rt)
+	if !ok {
+		return
+	}
+	resp, err := rt.service.RejectRefund(r.Context(), principalID(r), id)
+	if err != nil {
+		switch err {
+		case service.ErrRefundNotFound:
+			rt.writeError(w, r, http.StatusNotFound, "refund_not_found", "refund not found")
+		case service.ErrRefundState:
+			rt.writeError(w, r, http.StatusUnprocessableEntity, "refund_state", "refund is not actionable")
+		default:
+			rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		}
+		return
+	}
+	rt.writeJSON(w, http.StatusOK, resp)
+}
+
+func parseRefundID(w http.ResponseWriter, r *http.Request, rt *Router) (int64, bool) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_id", "invalid numeric id")
+		return 0, false
+	}
+	return id, true
+}
+
+func (rt *Router) handleReconciliation(w http.ResponseWriter, r *http.Request) {
+	rows, unmatched, err := rt.service.Reconcile(r.Context(), 200)
+	if err != nil {
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	if rows == nil {
+		rows = []schema.ReconResponse{}
+	}
+	rt.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"orders": rows, "unmatched_webhooks": unmatched,
+	})
+}
+
+func (rt *Router) handleGetCredit(w http.ResponseWriter, r *http.Request) {
+	buyerID, err := strconv.ParseInt(chi.URLParam(r, "buyer_id"), 10, 64)
+	if err != nil || buyerID <= 0 {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_id", "invalid buyer id")
+		return
+	}
+	resp, err := rt.service.GetCredit(r.Context(), buyerID)
+	if err != nil {
+		if err == service.ErrCreditNotFound {
+			rt.writeError(w, r, http.StatusNotFound, "credit_not_found", "credit account not found")
+			return
+		}
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	rt.writeJSON(w, http.StatusOK, resp)
+}
+
+func (rt *Router) handleSetCredit(w http.ResponseWriter, r *http.Request) {
+	buyerID, err := strconv.ParseInt(chi.URLParam(r, "buyer_id"), 10, 64)
+	if err != nil || buyerID <= 0 {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_id", "invalid buyer id")
+		return
+	}
+	var req schema.SetCreditRequest
+	defer r.Body.Close()
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_body", "invalid request body")
+		return
+	}
+	resp, err := rt.service.SetCredit(r.Context(), buyerID, req.CreditLimitMinor, req.Terms, req.OnHold, req.HoldReason)
+	if err != nil {
+		if err == service.ErrInvalidIntent {
+			rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "limit and terms are required")
+			return
+		}
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	rt.writeJSON(w, http.StatusOK, resp)
 }

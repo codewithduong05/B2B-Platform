@@ -123,6 +123,7 @@ func setupPayEnv(t *testing.T, id int64, staff map[int64]bool) *payEnv {
 	mux := chi.NewRouter()
 	mux.Use(middleware.RequestID)
 	mux.Mount("/api/v1", prt.ChiRouter())
+	mux.Mount("/", prt.WebhookRouter())
 	server := httptest.NewServer(mux)
 
 	t.Cleanup(func() {
