@@ -12,8 +12,10 @@ import (
 	"github.com/atlas-platform/backend/internal/logger"
 	"github.com/atlas-platform/backend/internal/messaging"
 	"github.com/atlas-platform/backend/internal/modules/catalog"
+	catalog_repo "github.com/atlas-platform/backend/internal/modules/catalog/repository"
 	catalog_service "github.com/atlas-platform/backend/internal/modules/catalog/service"
 	"github.com/atlas-platform/backend/internal/modules/commerce"
+	commerce_repo "github.com/atlas-platform/backend/internal/modules/commerce/repository"
 	commerce_service "github.com/atlas-platform/backend/internal/modules/commerce/service"
 	"github.com/atlas-platform/backend/internal/modules/crm"
 	"github.com/atlas-platform/backend/internal/modules/identity"
@@ -23,6 +25,7 @@ import (
 	"github.com/atlas-platform/backend/internal/modules/pricing"
 	pricing_service "github.com/atlas-platform/backend/internal/modules/pricing/service"
 	"github.com/atlas-platform/backend/internal/modules/promotions"
+	"github.com/atlas-platform/backend/internal/modules/suppliers"
 	"github.com/atlas-platform/backend/internal/server"
 )
 
@@ -163,6 +166,22 @@ func main() {
 		adminMiddleware(nil),
 	)
 	srv.Router().Mount("/api/v1", crmRouter.ChiRouter())
+
+	// Register suppliers module routes
+	supplierService := suppliers.NewService(db)
+	supplierService.SetPortalDependencies(
+		catalog_repo.NewSupplierRepository(db),
+		catalog_repo.NewProductRepository(db),
+		commerce_repo.NewCommerceRepository(db),
+		commerceService,
+		inventoryService,
+	)
+	supplierRouter := suppliers.New(supplierService)
+	supplierRouter.RegisterRoutes(
+		authMiddleware(authService),
+		adminMiddleware(nil),
+	)
+	srv.Router().Mount("/api/v1", supplierRouter.ChiRouter())
 
 	if err := srv.Start(ctx); err != nil {
 		slog.ErrorContext(ctx, "failed to start server", slog.String("error", err.Error()))

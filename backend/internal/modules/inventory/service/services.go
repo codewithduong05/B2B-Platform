@@ -545,3 +545,96 @@ func (s *InventoryService) ReleaseReservationAttempt(ctx context.Context, reques
 		return nil
 	})
 }
+
+// PushSupplierStock records supplier-pushed stock: it tops up the lot
+// identified by lot number (creating the stock level and lot when missing)
+// and keeps level counters consistent. Everything runs in one transaction
+// with row locks, so concurrent pushes sum exactly. Lots track their own
+// identity, so FEFO sees pushed stock like any other lot.
+func (s *InventoryService) PushSupplierStock(ctx context.Context, productID, supplierID int64, lotNumber string, quantity int32, expiresAt *time.Time) (schema.LotSummary, error) {
+	var out schema.LotSummary
+	if quantity <= 0 {
+		return out, ErrInvalidQuantity
+	}
+	if lotNumber == "" {
+		return out, ErrInvalidQuantity
+	}
+	err := s.db.WithTx(ctx, func(tx *database.Tx) error {
+		txRepo := repo.NewInventoryRepositoryWithTx(tx)
+
+		sl, err := txRepo.GetStockLevelByProductAndSupplier(ctx, productID, supplierID)
+		if err != nil {
+			if !errors.Is(err, pgx.ErrNoRows) {
+				return fmt.Errorf("get stock level: %w", err)
+			}
+			sl, err = txRepo.CreateStockLevel(ctx, inventory.CreateStockLevelParams{
+				Code:              fmt.Sprintf("sl_%d", time.Now().UnixNano()),
+				ProductID:         productID,
+				SupplierID:        supplierID,
+				AvailableQuantity: 0,
+				ReservedQuantity:  0,
+				TotalQuantity:     0,
+				SafetyStock:       0,
+			})
+			if err != nil {
+				return fmt.Errorf("create stock level: %w", err)
+			}
+		}
+
+		lot, err := txRepo.GetLotByStockAndNumberForUpdate(ctx, sl.ID, lotNumber)
+		if err != nil {
+			if !errors.Is(err, pgx.ErrNoRows) {
+				return fmt.Errorf("get lot: %w", err)
+			}
+			var expires pgtype.Timestamptz
+			if expiresAt != nil {
+				expires = pgtype.Timestamptz{Time: *expiresAt, Valid: true}
+			}
+			lot, err = txRepo.CreateLot(ctx, inventory.CreateLotParams{
+				Code:              fmt.Sprintf("lot_%d", time.Now().UnixNano()),
+				StockLevelID:      sl.ID,
+				LotNumber:         lotNumber,
+				InitialQuantity:   quantity,
+				AvailableQuantity: quantity,
+				ReservedQuantity:  0,
+				Status:            inventory.InventoryLotStatusActive,
+				IsQuarantined:     false,
+				ExpiresAt:         expires,
+			})
+			if err != nil {
+				return fmt.Errorf("create lot: %w", err)
+			}
+			if _, err := txRepo.UpdateStockLevelQuantities(ctx, sl.ID,
+				sl.AvailableQuantity+quantity,
+				sl.ReservedQuantity,
+				sl.TotalQuantity+quantity); err != nil {
+				return fmt.Errorf("update stock level: %w", err)
+			}
+			out = toLotSummary(lot)
+			return nil
+		}
+
+		if lot.IsQuarantined {
+			return ErrLotQuarantined
+		}
+		updated, err := txRepo.UpdateLotQuantities(ctx, lot.ID,
+			lot.AvailableQuantity+quantity,
+			lot.ReservedQuantity,
+			lot.Status)
+		if err != nil {
+			return fmt.Errorf("top up lot: %w", err)
+		}
+		if _, err := txRepo.UpdateStockLevelQuantities(ctx, sl.ID,
+			sl.AvailableQuantity+quantity,
+			sl.ReservedQuantity,
+			sl.TotalQuantity+quantity); err != nil {
+			return fmt.Errorf("update stock level: %w", err)
+		}
+		out = toLotSummary(updated)
+		return nil
+	})
+	if err != nil {
+		return schema.LotSummary{}, err
+	}
+	return out, nil
+}

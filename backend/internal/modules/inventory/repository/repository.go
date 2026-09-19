@@ -69,6 +69,13 @@ func (r *InventoryRepository) GetLotByIDForUpdate(ctx context.Context, id int64)
 	return r.q.GetLotByIDForUpdate(ctx, id)
 }
 
+func (r *InventoryRepository) GetLotByStockAndNumberForUpdate(ctx context.Context, stockLevelID int64, lotNumber string) (inventory.InventoryLot, error) {
+	return r.q.GetLotByStockAndNumberForUpdate(ctx, inventory.GetLotByStockAndNumberForUpdateParams{
+		StockLevelID: stockLevelID,
+		LotNumber:    lotNumber,
+	})
+}
+
 func (r *InventoryRepository) GetFEFOLotsForUpdate(ctx context.Context, stockLevelID int64) ([]inventory.InventoryLot, error) {
 	return r.q.GetFEFOLotsForUpdate(ctx, stockLevelID)
 }

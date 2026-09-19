@@ -396,12 +396,21 @@ func (r *CommerceRepository) DeleteIdempotency(ctx context.Context, id int64) er
 }
 
 func (r *CommerceRepository) ListOrdersByBuyer(ctx context.Context, buyerID int64) ([]Order, error) {
+	return r.listOrdersWhere(ctx, `buyer_id = $1`, buyerID)
+}
+
+// ListOrdersBySupplier lists a catalog supplier's directed orders (portal).
+func (r *CommerceRepository) ListOrdersBySupplier(ctx context.Context, supplierID int64) ([]Order, error) {
+	return r.listOrdersWhere(ctx, `supplier_id = $1`, supplierID)
+}
+
+func (r *CommerceRepository) listOrdersWhere(ctx context.Context, cond string, arg int64) ([]Order, error) {
 	rows, err := r.conn().Query(ctx, `
 		SELECT id, code, buyer_id, supplier_id, cart_id, cart_code, currency, subtotal_minor, discounts_minor, total_minor, status, placed_at, created_at, updated_at
 		FROM commerce."order"
-		WHERE buyer_id = $1 AND deleted_at IS NULL
+		WHERE `+cond+` AND deleted_at IS NULL
 		ORDER BY placed_at DESC
-	`, buyerID)
+	`, arg)
 	if err != nil {
 		return nil, err
 	}

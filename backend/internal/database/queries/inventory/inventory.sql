@@ -37,6 +37,11 @@ INSERT INTO inventory.lot (
 SELECT * FROM inventory.lot
 WHERE id = $1 AND deleted_at IS NULL;
 
+-- name: GetLotByStockAndNumberForUpdate :one
+SELECT * FROM inventory.lot
+WHERE stock_level_id = $1 AND lot_number = $2 AND deleted_at IS NULL
+FOR UPDATE;
+
 -- name: GetLotByCode :one
 SELECT * FROM inventory.lot
 WHERE code = $1 AND deleted_at IS NULL;

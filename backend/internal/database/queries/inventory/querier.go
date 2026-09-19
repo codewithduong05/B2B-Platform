@@ -18,6 +18,7 @@ type Querier interface {
 	GetLotByCode(ctx context.Context, code string) (InventoryLot, error)
 	GetLotByID(ctx context.Context, id int64) (InventoryLot, error)
 	GetLotByIDForUpdate(ctx context.Context, id int64) (InventoryLot, error)
+	GetLotByStockAndNumberForUpdate(ctx context.Context, arg GetLotByStockAndNumberForUpdateParams) (InventoryLot, error)
 	GetReservationByCode(ctx context.Context, code string) (InventoryReservation, error)
 	GetReservationByID(ctx context.Context, id int64) (InventoryReservation, error)
 	GetReservationsByRequestID(ctx context.Context, requestID string) ([]InventoryReservation, error)

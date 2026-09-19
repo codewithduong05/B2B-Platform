@@ -366,6 +366,39 @@ func (q *Queries) GetLotByIDForUpdate(ctx context.Context, id int64) (InventoryL
 	return i, err
 }
 
+const getLotByStockAndNumberForUpdate = `-- name: GetLotByStockAndNumberForUpdate :one
+SELECT id, code, stock_level_id, lot_number, initial_quantity, available_quantity, reserved_quantity, status, is_quarantined, production_date, expires_at, created_at, updated_at, deleted_at FROM inventory.lot
+WHERE stock_level_id = $1 AND lot_number = $2 AND deleted_at IS NULL
+FOR UPDATE
+`
+
+type GetLotByStockAndNumberForUpdateParams struct {
+	StockLevelID int64  `json:"stock_level_id"`
+	LotNumber    string `json:"lot_number"`
+}
+
+func (q *Queries) GetLotByStockAndNumberForUpdate(ctx context.Context, arg GetLotByStockAndNumberForUpdateParams) (InventoryLot, error) {
+	row := q.db.QueryRow(ctx, getLotByStockAndNumberForUpdate, arg.StockLevelID, arg.LotNumber)
+	var i InventoryLot
+	err := row.Scan(
+		&i.ID,
+		&i.Code,
+		&i.StockLevelID,
+		&i.LotNumber,
+		&i.InitialQuantity,
+		&i.AvailableQuantity,
+		&i.ReservedQuantity,
+		&i.Status,
+		&i.IsQuarantined,
+		&i.ProductionDate,
+		&i.ExpiresAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
 const getReservationByCode = `-- name: GetReservationByCode :one
 SELECT id, code, lot_id, order_line_id, request_id, quantity, status, expires_at, created_at, updated_at, deleted_at FROM inventory.reservation
 WHERE code = $1 AND deleted_at IS NULL

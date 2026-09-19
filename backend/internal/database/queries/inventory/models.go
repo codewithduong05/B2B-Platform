@@ -144,7 +144,12 @@ func (ns NullCatalogUnitType) Value() (driver.Value, error) {
 type CommerceOrderStatus string
 
 const (
-	CommerceOrderStatusPlaced CommerceOrderStatus = "placed"
+	CommerceOrderStatusPlaced     CommerceOrderStatus = "placed"
+	CommerceOrderStatusConfirmed  CommerceOrderStatus = "confirmed"
+	CommerceOrderStatusProcessing CommerceOrderStatus = "processing"
+	CommerceOrderStatusShipped    CommerceOrderStatus = "shipped"
+	CommerceOrderStatusDelivered  CommerceOrderStatus = "delivered"
+	CommerceOrderStatusCancelled  CommerceOrderStatus = "cancelled"
 )
 
 func (e *CommerceOrderStatus) Scan(src interface{}) error {
@@ -707,13 +712,14 @@ type CatalogUnit struct {
 }
 
 type CommerceCart struct {
-	ID        int64              `json:"id"`
-	Code      string             `json:"code"`
-	BuyerID   int64              `json:"buyer_id"`
-	Currency  string             `json:"currency"`
-	CreatedAt time.Time          `json:"created_at"`
-	UpdatedAt time.Time          `json:"updated_at"`
-	DeletedAt pgtype.Timestamptz `json:"deleted_at"`
+	ID          int64              `json:"id"`
+	Code        string             `json:"code"`
+	BuyerID     int64              `json:"buyer_id"`
+	Currency    string             `json:"currency"`
+	CreatedAt   time.Time          `json:"created_at"`
+	UpdatedAt   time.Time          `json:"updated_at"`
+	DeletedAt   pgtype.Timestamptz `json:"deleted_at"`
+	VoucherCode pgtype.Text        `json:"voucher_code"`
 }
 
 type CommerceCartLine struct {
@@ -740,6 +746,39 @@ type CommerceCheckoutIdempotency struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
+type CommerceCreditNote struct {
+	ID          int64              `json:"id"`
+	Code        string             `json:"code"`
+	BatchCode   string             `json:"batch_code"`
+	OrderID     int64              `json:"order_id"`
+	InvoiceID   pgtype.Int8        `json:"invoice_id"`
+	ReturnID    pgtype.Int8        `json:"return_id"`
+	AmountMinor int64              `json:"amount_minor"`
+	Currency    string             `json:"currency"`
+	Reason      string             `json:"reason"`
+	Status      string             `json:"status"`
+	Actor       pgtype.Int8        `json:"actor"`
+	CreatedAt   time.Time          `json:"created_at"`
+	UpdatedAt   time.Time          `json:"updated_at"`
+	DeletedAt   pgtype.Timestamptz `json:"deleted_at"`
+}
+
+type CommerceInvoice struct {
+	ID            int64              `json:"id"`
+	Code          string             `json:"code"`
+	OrderID       int64              `json:"order_id"`
+	SubtotalMinor int64              `json:"subtotal_minor"`
+	TotalMinor    int64              `json:"total_minor"`
+	BalanceMinor  int64              `json:"balance_minor"`
+	Currency      string             `json:"currency"`
+	Status        string             `json:"status"`
+	IssuedAt      pgtype.Timestamptz `json:"issued_at"`
+	CreatedAt     time.Time          `json:"created_at"`
+	UpdatedAt     time.Time          `json:"updated_at"`
+	DeletedAt     pgtype.Timestamptz `json:"deleted_at"`
+	ReplacesCode  pgtype.Text        `json:"replaces_code"`
+}
+
 type CommerceOrder struct {
 	ID             int64               `json:"id"`
 	Code           string              `json:"code"`
@@ -756,6 +795,9 @@ type CommerceOrder struct {
 	CreatedAt      time.Time           `json:"created_at"`
 	UpdatedAt      time.Time           `json:"updated_at"`
 	DeletedAt      pgtype.Timestamptz  `json:"deleted_at"`
+	OnHold         bool                `json:"on_hold"`
+	HoldReason     pgtype.Text         `json:"hold_reason"`
+	IdemKey        pgtype.Text         `json:"idem_key"`
 }
 
 type CommerceOrderHistory struct {
@@ -785,6 +827,88 @@ type CommerceOrderLine struct {
 	CreatedAt       time.Time          `json:"created_at"`
 	UpdatedAt       time.Time          `json:"updated_at"`
 	DeletedAt       pgtype.Timestamptz `json:"deleted_at"`
+}
+
+type CommerceReturnLine struct {
+	ID          int64     `json:"id"`
+	ReturnID    int64     `json:"return_id"`
+	OrderLineID int64     `json:"order_line_id"`
+	Quantity    int32     `json:"quantity"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+type CommerceReturnRequest struct {
+	ID          int64              `json:"id"`
+	Code        string             `json:"code"`
+	OrderID     int64              `json:"order_id"`
+	BuyerID     int64              `json:"buyer_id"`
+	Reason      string             `json:"reason"`
+	Status      string             `json:"status"`
+	RequestedBy pgtype.Int8        `json:"requested_by"`
+	DecidedBy   pgtype.Int8        `json:"decided_by"`
+	CreatedAt   time.Time          `json:"created_at"`
+	UpdatedAt   time.Time          `json:"updated_at"`
+	DeletedAt   pgtype.Timestamptz `json:"deleted_at"`
+}
+
+type CommerceShipment struct {
+	ID           int64              `json:"id"`
+	Code         string             `json:"code"`
+	OrderID      int64              `json:"order_id"`
+	Carrier      pgtype.Text        `json:"carrier"`
+	TrackingCode pgtype.Text        `json:"tracking_code"`
+	Status       string             `json:"status"`
+	CreatedAt    time.Time          `json:"created_at"`
+	UpdatedAt    time.Time          `json:"updated_at"`
+	DeletedAt    pgtype.Timestamptz `json:"deleted_at"`
+}
+
+type CommerceShipmentLine struct {
+	ID          int64     `json:"id"`
+	ShipmentID  int64     `json:"shipment_id"`
+	OrderLineID int64     `json:"order_line_id"`
+	Quantity    int32     `json:"quantity"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+type CrmLead struct {
+	ID           int64              `json:"id"`
+	Code         string             `json:"code"`
+	ContactName  string             `json:"contact_name"`
+	BusinessName string             `json:"business_name"`
+	Email        pgtype.Text        `json:"email"`
+	Phone        pgtype.Text        `json:"phone"`
+	Message      pgtype.Text        `json:"message"`
+	Status       string             `json:"status"`
+	PartnerID    pgtype.Int8        `json:"partner_id"`
+	ReferralID   pgtype.Int8        `json:"referral_id"`
+	AssignedTo   pgtype.Int8        `json:"assigned_to"`
+	BuyerID      pgtype.Int8        `json:"buyer_id"`
+	Notes        string             `json:"notes"`
+	CreatedAt    time.Time          `json:"created_at"`
+	UpdatedAt    time.Time          `json:"updated_at"`
+	DeletedAt    pgtype.Timestamptz `json:"deleted_at"`
+}
+
+type CrmPartner struct {
+	ID        int64              `json:"id"`
+	Code      string             `json:"code"`
+	Name      string             `json:"name"`
+	Slug      string             `json:"slug"`
+	IsActive  bool               `json:"is_active"`
+	CreatedAt time.Time          `json:"created_at"`
+	UpdatedAt time.Time          `json:"updated_at"`
+	DeletedAt pgtype.Timestamptz `json:"deleted_at"`
+}
+
+type CrmReferralCode struct {
+	ID        int64              `json:"id"`
+	Code      string             `json:"code"`
+	PartnerID int64              `json:"partner_id"`
+	IsActive  bool               `json:"is_active"`
+	CreatedAt time.Time          `json:"created_at"`
+	UpdatedAt time.Time          `json:"updated_at"`
+	DeletedAt pgtype.Timestamptz `json:"deleted_at"`
 }
 
 type IdentityAddress struct {
@@ -1099,6 +1223,80 @@ type InventoryStockLevel struct {
 	DeletedAt         pgtype.Timestamptz `json:"deleted_at"`
 }
 
+type PaymentsCreditAccount struct {
+	BuyerID          int64       `json:"buyer_id"`
+	CreditLimitMinor int64       `json:"credit_limit_minor"`
+	Terms            string      `json:"terms"`
+	OnHold           bool        `json:"on_hold"`
+	HoldReason       pgtype.Text `json:"hold_reason"`
+	CreatedAt        time.Time   `json:"created_at"`
+	UpdatedAt        time.Time   `json:"updated_at"`
+}
+
+type PaymentsPaymentAttempt struct {
+	ID         int64       `json:"id"`
+	IntentID   int64       `json:"intent_id"`
+	Result     string      `json:"result"`
+	GatewayRef pgtype.Text `json:"gateway_ref"`
+	Note       pgtype.Text `json:"note"`
+	RecordedBy pgtype.Int8 `json:"recorded_by"`
+	CreatedAt  time.Time   `json:"created_at"`
+}
+
+type PaymentsPaymentIntent struct {
+	ID              int64              `json:"id"`
+	Code            string             `json:"code"`
+	BuyerID         int64              `json:"buyer_id"`
+	OrderID         int64              `json:"order_id"`
+	OrderCode       string             `json:"order_code"`
+	PaymentMethodID pgtype.Int8        `json:"payment_method_id"`
+	AmountMinor     int64              `json:"amount_minor"`
+	Currency        string             `json:"currency"`
+	Status          string             `json:"status"`
+	IdemKey         string             `json:"idem_key"`
+	CreatedAt       time.Time          `json:"created_at"`
+	UpdatedAt       time.Time          `json:"updated_at"`
+	DeletedAt       pgtype.Timestamptz `json:"deleted_at"`
+}
+
+type PaymentsPaymentMethod struct {
+	ID          int64              `json:"id"`
+	Code        string             `json:"code"`
+	BuyerID     int64              `json:"buyer_id"`
+	MethodType  string             `json:"method_type"`
+	DisplayName string             `json:"display_name"`
+	IsActive    bool               `json:"is_active"`
+	CreatedAt   time.Time          `json:"created_at"`
+	UpdatedAt   time.Time          `json:"updated_at"`
+	DeletedAt   pgtype.Timestamptz `json:"deleted_at"`
+}
+
+type PaymentsPaymentRefund struct {
+	ID          int64              `json:"id"`
+	Code        string             `json:"code"`
+	IntentID    int64              `json:"intent_id"`
+	AmountMinor int64              `json:"amount_minor"`
+	Currency    string             `json:"currency"`
+	Reason      string             `json:"reason"`
+	Status      string             `json:"status"`
+	RequestedBy pgtype.Int8        `json:"requested_by"`
+	ApprovedBy  pgtype.Int8        `json:"approved_by"`
+	CreatedAt   time.Time          `json:"created_at"`
+	UpdatedAt   time.Time          `json:"updated_at"`
+	DeletedAt   pgtype.Timestamptz `json:"deleted_at"`
+}
+
+type PaymentsWebhookEvent struct {
+	ID              int64       `json:"id"`
+	Provider        string      `json:"provider"`
+	ProviderEventID string      `json:"provider_event_id"`
+	EventType       string      `json:"event_type"`
+	PayloadHash     string      `json:"payload_hash"`
+	IntentCode      pgtype.Text `json:"intent_code"`
+	Status          string      `json:"status"`
+	CreatedAt       time.Time   `json:"created_at"`
+}
+
 type PlatformHealthCheck struct {
 	ID        int64     `json:"id"`
 	CheckedAt time.Time `json:"checked_at"`
@@ -1162,4 +1360,59 @@ type PricingQuantityTier struct {
 	CreatedAt       time.Time          `json:"created_at"`
 	UpdatedAt       time.Time          `json:"updated_at"`
 	DeletedAt       pgtype.Timestamptz `json:"deleted_at"`
+}
+
+type PromotionsPromotion struct {
+	ID             int64              `json:"id"`
+	Code           string             `json:"code"`
+	Name           string             `json:"name"`
+	Kind           string             `json:"kind"`
+	ValueMinor     int64              `json:"value_minor"`
+	Currency       string             `json:"currency"`
+	Status         string             `json:"status"`
+	ValidFrom      pgtype.Timestamptz `json:"valid_from"`
+	ValidTo        pgtype.Timestamptz `json:"valid_to"`
+	MaxRedemptions pgtype.Int4        `json:"max_redemptions"`
+	RedeemedCount  int32              `json:"redeemed_count"`
+	CreatedAt      time.Time          `json:"created_at"`
+	UpdatedAt      time.Time          `json:"updated_at"`
+	DeletedAt      pgtype.Timestamptz `json:"deleted_at"`
+}
+
+type PromotionsVoucherRedemption struct {
+	ID          int64     `json:"id"`
+	PromotionID int64     `json:"promotion_id"`
+	BuyerID     int64     `json:"buyer_id"`
+	OrderID     int64     `json:"order_id"`
+	AmountMinor int64     `json:"amount_minor"`
+	Currency    string    `json:"currency"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+type SuppliersSupplierContract struct {
+	ID         int64              `json:"id"`
+	SupplierID int64              `json:"supplier_id"`
+	Version    int32              `json:"version"`
+	Terms      string             `json:"terms"`
+	ValidFrom  pgtype.Timestamptz `json:"valid_from"`
+	ValidTo    pgtype.Timestamptz `json:"valid_to"`
+	IsCurrent  bool               `json:"is_current"`
+	CreatedBy  pgtype.Int8        `json:"created_by"`
+	CreatedAt  time.Time          `json:"created_at"`
+}
+
+type SuppliersSupplierProfile struct {
+	ID           int64              `json:"id"`
+	Code         string             `json:"code"`
+	CompanyName  string             `json:"company_name"`
+	ContactName  pgtype.Text        `json:"contact_name"`
+	ContactEmail pgtype.Text        `json:"contact_email"`
+	ContactPhone pgtype.Text        `json:"contact_phone"`
+	Status       string             `json:"status"`
+	UserID       pgtype.Int8        `json:"user_id"`
+	ApprovedBy   pgtype.Int8        `json:"approved_by"`
+	ApprovedAt   pgtype.Timestamptz `json:"approved_at"`
+	CreatedAt    time.Time          `json:"created_at"`
+	UpdatedAt    time.Time          `json:"updated_at"`
+	DeletedAt    pgtype.Timestamptz `json:"deleted_at"`
 }
