@@ -437,3 +437,239 @@ func (r *CMSRepository) ListSettings(ctx context.Context) ([]Setting, error) {
 	}
 	return settings, nil
 }
+
+type SeoTemplate struct {
+	ID                  int64
+	Key                 string
+	Name                string
+	TitleTemplate       string
+	DescriptionTemplate *string
+	StructuredData      []byte
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+}
+
+type SeoSetting struct {
+	ID        int64
+	Key       string
+	Value     string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+type SitemapEntry struct {
+	Loc     string
+	LastMod time.Time
+}
+
+type ProductFeedEntry struct {
+	Code         string
+	Slug         string
+	Name         string
+	Description  *string
+	SeoTitle     *string
+	SeoDesc      *string
+	Gtin         *string
+	Sku          *string
+	PriceMinor   *int64
+	Currency     string
+	ImageURL     *string
+	CategoryName string
+	BrandName    *string
+	UpdatedAt    time.Time
+}
+
+const seoTemplateColumns = `id, key, name, title_template, description_template, structured_data, created_at, updated_at`
+
+func scanSeoTemplate(row interface{ Scan(...any) error }) (SeoTemplate, error) {
+	var t SeoTemplate
+	var desc pgtype.Text
+	var sd []byte
+	err := row.Scan(&t.ID, &t.Key, &t.Name, &t.TitleTemplate, &desc, &sd, &t.CreatedAt, &t.UpdatedAt)
+	if err != nil {
+		return t, err
+	}
+	if desc.Valid {
+		s := desc.String
+		t.DescriptionTemplate = &s
+	}
+	t.StructuredData = sd
+	return t, nil
+}
+
+func (r *CMSRepository) CreateSeoTemplate(ctx context.Context, key, name, titleTemplate string, descTemplate *string, structuredData []byte) (SeoTemplate, error) {
+	var desc pgtype.Text
+	if descTemplate != nil {
+		desc = pgtype.Text{String: *descTemplate, Valid: true}
+	}
+	var id int64
+	err := r.conn().QueryRow(ctx, `
+		INSERT INTO cms.seo_template (key, name, title_template, description_template, structured_data)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING id
+	`, key, name, titleTemplate, desc, structuredData).Scan(&id)
+	if err != nil {
+		return SeoTemplate{}, err
+	}
+	return r.GetSeoTemplateByKey(ctx, key)
+}
+
+func (r *CMSRepository) GetSeoTemplateByKey(ctx context.Context, key string) (SeoTemplate, error) {
+	row := r.conn().QueryRow(ctx, `SELECT `+seoTemplateColumns+` FROM cms.seo_template WHERE key = $1`, key)
+	return scanSeoTemplate(row)
+}
+
+func (r *CMSRepository) ListSeoTemplates(ctx context.Context) ([]SeoTemplate, error) {
+	rows, err := r.conn().Query(ctx, `SELECT `+seoTemplateColumns+` FROM cms.seo_template ORDER BY key`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var templates []SeoTemplate
+	for rows.Next() {
+		t, err := scanSeoTemplate(rows)
+		if err != nil {
+			return nil, err
+		}
+		templates = append(templates, t)
+	}
+	return templates, nil
+}
+
+func (r *CMSRepository) UpdateSeoTemplate(ctx context.Context, key, name, titleTemplate string, descTemplate *string, structuredData []byte) (SeoTemplate, error) {
+	var desc pgtype.Text
+	if descTemplate != nil {
+		desc = pgtype.Text{String: *descTemplate, Valid: true}
+	}
+	_, err := r.conn().Exec(ctx, `
+		UPDATE cms.seo_template
+		SET name = $2, title_template = $3, description_template = $4, structured_data = $5, updated_at = NOW()
+		WHERE key = $1
+	`, key, name, titleTemplate, desc, structuredData)
+	if err != nil {
+		return SeoTemplate{}, err
+	}
+	return r.GetSeoTemplateByKey(ctx, key)
+}
+
+func (r *CMSRepository) UpsertSeoSetting(ctx context.Context, key, value string) (SeoSetting, error) {
+	var s SeoSetting
+	err := r.conn().QueryRow(ctx, `
+		INSERT INTO cms.seo_settings (key, value)
+		VALUES ($1, $2)
+		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+		RETURNING id, key, value, created_at, updated_at
+	`, key, value).Scan(&s.ID, &s.Key, &s.Value, &s.CreatedAt, &s.UpdatedAt)
+	return s, err
+}
+
+func (r *CMSRepository) GetSeoSettingByKey(ctx context.Context, key string) (SeoSetting, error) {
+	var s SeoSetting
+	err := r.conn().QueryRow(ctx, `SELECT id, key, value, created_at, updated_at FROM cms.seo_settings WHERE key = $1`, key).Scan(&s.ID, &s.Key, &s.Value, &s.CreatedAt, &s.UpdatedAt)
+	return s, err
+}
+
+func (r *CMSRepository) ListSeoSettings(ctx context.Context) ([]SeoSetting, error) {
+	rows, err := r.conn().Query(ctx, `SELECT id, key, value, created_at, updated_at FROM cms.seo_settings ORDER BY key`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var settings []SeoSetting
+	for rows.Next() {
+		var s SeoSetting
+		if err := rows.Scan(&s.ID, &s.Key, &s.Value, &s.CreatedAt, &s.UpdatedAt); err != nil {
+			return nil, err
+		}
+		settings = append(settings, s)
+	}
+	return settings, nil
+}
+
+func (r *CMSRepository) ListSitemapEntries(ctx context.Context) ([]SitemapEntry, error) {
+	var entries []SitemapEntry
+
+	rows, err := r.conn().Query(ctx, `
+		SELECT '/' || slug AS loc, updated_at FROM cms.page WHERE deleted_at IS NULL
+		UNION ALL
+		SELECT '/articles/' || slug, updated_at FROM cms.article WHERE deleted_at IS NULL AND status = 'published'
+		UNION ALL
+		SELECT '/products/' || slug, updated_at FROM catalog.product WHERE deleted_at IS NULL AND status = 'published' AND is_active = TRUE
+		UNION ALL
+		SELECT '/categories/' || slug, updated_at FROM catalog.category WHERE deleted_at IS NULL
+		ORDER BY loc
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var e SitemapEntry
+		if err := rows.Scan(&e.Loc, &e.LastMod); err != nil {
+			return nil, err
+		}
+		entries = append(entries, e)
+	}
+	return entries, nil
+}
+
+func (r *CMSRepository) ListProductFeedEntries(ctx context.Context) ([]ProductFeedEntry, error) {
+	rows, err := r.conn().Query(ctx, `
+		SELECT p.code, p.slug, p.name, p.description, p.seo_title, p.seo_description,
+		       p.gtin, p.sku, p.base_price_minor, p.currency,
+		       (SELECT pm.url FROM catalog.product_media pm WHERE pm.product_id = p.id AND pm.deleted_at IS NULL LIMIT 1),
+		       c.name, b.name, p.updated_at
+		FROM catalog.product p
+		JOIN catalog.category c ON c.id = p.category_id
+		LEFT JOIN catalog.brand b ON b.id = p.brand_id
+		WHERE p.deleted_at IS NULL AND p.status = 'published' AND p.is_active = TRUE
+		ORDER BY p.name
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var entries []ProductFeedEntry
+	for rows.Next() {
+		var e ProductFeedEntry
+		var desc, seoT, seoD, gtin, sku, imgURL, brand pgtype.Text
+		var price pgtype.Int8
+		if err := rows.Scan(&e.Code, &e.Slug, &e.Name, &desc, &seoT, &seoD, &gtin, &sku, &price, &e.Currency, &imgURL, &e.CategoryName, &brand, &e.UpdatedAt); err != nil {
+			return nil, err
+		}
+		if desc.Valid {
+			s := desc.String
+			e.Description = &s
+		}
+		if seoT.Valid {
+			s := seoT.String
+			e.SeoTitle = &s
+		}
+		if seoD.Valid {
+			s := seoD.String
+			e.SeoDesc = &s
+		}
+		if gtin.Valid {
+			s := gtin.String
+			e.Gtin = &s
+		}
+		if sku.Valid {
+			s := sku.String
+			e.Sku = &s
+		}
+		if price.Valid {
+			v := price.Int64
+			e.PriceMinor = &v
+		}
+		if imgURL.Valid {
+			s := imgURL.String
+			e.ImageURL = &s
+		}
+		if brand.Valid {
+			s := brand.String
+			e.BrandName = &s
+		}
+		entries = append(entries, e)
+	}
+	return entries, nil
+}

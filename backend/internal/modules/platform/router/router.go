@@ -67,10 +67,19 @@ func (rt *Router) RegisterRoutes(authMiddleware, adminMiddleware func(http.Handl
 		r.Get("/notifications", rt.handleAdminListNotifications)
 		r.Get("/notifications/{code}", rt.handleAdminGetNotification)
 		r.Get("/notifications/{code}/events", rt.handleAdminGetNotificationEvents)
-		r.Get("/feature-flags", rt.handleAdminListFeatureFlags)
-		r.Put("/feature-flags/{key}", rt.handleUpsertFeatureFlag)
 		r.Get("/audit-log", rt.handleListAuditLog)
 		r.Get("/integration-traffic", rt.handleListIntegrationTraffic)
+	})
+
+	rt.router.Route("/admin", func(r chi.Router) {
+		if authMiddleware != nil {
+			r.Use(authMiddleware)
+		}
+		if adminMiddleware != nil {
+			r.Use(adminMiddleware)
+		}
+		r.Get("/feature-flags", rt.handleAdminListFeatureFlags)
+		r.Put("/feature-flags/{key}", rt.handleUpsertFeatureFlag)
 	})
 }
 

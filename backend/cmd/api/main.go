@@ -12,6 +12,7 @@ import (
 	"github.com/atlas-platform/backend/internal/health"
 	"github.com/atlas-platform/backend/internal/logger"
 	"github.com/atlas-platform/backend/internal/messaging"
+	"github.com/atlas-platform/backend/internal/modules/ai"
 	"github.com/atlas-platform/backend/internal/modules/catalog"
 	catalog_repo "github.com/atlas-platform/backend/internal/modules/catalog/repository"
 	catalog_service "github.com/atlas-platform/backend/internal/modules/catalog/service"
@@ -236,6 +237,11 @@ func main() {
 	)
 	srv.Router().Mount("/api/v1", platformRouter.ChiRouter())
 
+	// Register AI module routes
+	aiService := ai.NewService(db)
+	aiRouter := ai.New(aiService)
+	aiRouter.Register(srv.Router())
+
 	// Start export worker
 	storageRoot := os.Getenv("EXPORT_STORAGE_DIR")
 	if storageRoot == "" {
@@ -252,7 +258,7 @@ func main() {
 	}
 	reportsRepo := reports_repo.NewReportsRepository(db)
 	exportWorker := worker.NewExportWorker(reportsRepo, store, slog.Default())
-	
+
 	go func() {
 		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()

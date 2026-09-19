@@ -456,7 +456,7 @@ func TestPlatform_AdminListFeatureFlags(t *testing.T) {
 		VALUES ('test_flag', 'Test Flag', false)
 	`)
 
-	resp, respBody := platformDo(t, env, http.MethodGet, "/api/v1/admin/platform/feature-flags", "")
+	resp, respBody := platformDo(t, env, http.MethodGet, "/api/v1/admin/feature-flags", "")
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var result struct {
@@ -479,7 +479,7 @@ func TestPlatform_UpsertFeatureFlag(t *testing.T) {
 	}
 
 	body, _ := json.Marshal(req)
-	resp, respBody := platformDo(t, env, http.MethodPut, "/api/v1/admin/platform/feature-flags/new_feature", string(body))
+	resp, respBody := platformDo(t, env, http.MethodPut, "/api/v1/admin/feature-flags/new_feature", string(body))
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var flag schema.FeatureFlagResponse
@@ -493,7 +493,7 @@ func TestPlatform_UpsertFeatureFlag(t *testing.T) {
 		Enabled: false,
 	}
 	body2, _ := json.Marshal(req2)
-	resp2, respBody2 := platformDo(t, env, http.MethodPut, "/api/v1/admin/platform/feature-flags/new_feature", string(body2))
+	resp2, respBody2 := platformDo(t, env, http.MethodPut, "/api/v1/admin/feature-flags/new_feature", string(body2))
 	assert.Equal(t, http.StatusOK, resp2.StatusCode)
 
 	var flag2 schema.FeatureFlagResponse
@@ -514,7 +514,7 @@ func TestPlatform_UpsertFeatureFlag_InvalidInput(t *testing.T) {
 	}
 
 	body, _ := json.Marshal(req)
-	resp, _ := platformDo(t, env, http.MethodPut, "/api/v1/admin/platform/feature-flags/test", string(body))
+	resp, _ := platformDo(t, env, http.MethodPut, "/api/v1/admin/feature-flags/test", string(body))
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
 

@@ -105,7 +105,7 @@ func cmsDo(t *testing.T, env *cmsEnv, method, path, body string) (*http.Response
 
 func TestCMS_EndToEnd(t *testing.T) {
 	env := setupCMSEnv(t)
-	_, _ = env.db.Pool.Exec(context.Background(), "TRUNCATE TABLE cms.article, cms.page, cms.faq, cms.banner, cms.menu_item, cms.setting RESTART IDENTITY CASCADE")
+	_, _ = env.db.Pool.Exec(context.Background(), "TRUNCATE TABLE cms.article, cms.page, cms.faq, cms.banner, cms.menu_item, cms.setting, cms.seo_template, cms.seo_settings RESTART IDENTITY CASCADE")
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 
 	// 1. Create article draft

@@ -84,32 +84,32 @@ type CreateMediaRequest struct {
 }
 
 type MediaResponse struct {
-	Code        string     `json:"code"`
-	Filename    string     `json:"filename"`
-	ContentType string     `json:"content_type"`
-	UploadURL   string     `json:"upload_url"`
-	DownloadURL *string    `json:"download_url,omitempty"`
-	Status      string     `json:"status"`
-	ExpiresAt   time.Time  `json:"expires_at"`
-	CreatedAt   time.Time  `json:"created_at"`
+	Code        string    `json:"code"`
+	Filename    string    `json:"filename"`
+	ContentType string    `json:"content_type"`
+	UploadURL   string    `json:"upload_url"`
+	DownloadURL *string   `json:"download_url,omitempty"`
+	Status      string    `json:"status"`
+	ExpiresAt   time.Time `json:"expires_at"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 type RegionResponse struct {
-	Code      string `json:"code"`
-	Name      string `json:"name"`
-	Country   string `json:"country"`
-	IsActive  bool   `json:"is_active"`
+	Code      string    `json:"code"`
+	Name      string    `json:"name"`
+	Country   string    `json:"country"`
+	IsActive  bool      `json:"is_active"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
 type FeatureFlagResponse struct {
-	Key         string     `json:"key"`
-	Name        string     `json:"name"`
-	Description *string    `json:"description,omitempty"`
-	Enabled     bool       `json:"enabled"`
-	UpdatedBy   *int64     `json:"updated_by,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
+	Key         string    `json:"key"`
+	Name        string    `json:"name"`
+	Description *string   `json:"description,omitempty"`
+	Enabled     bool      `json:"enabled"`
+	UpdatedBy   *int64    `json:"updated_by,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 type UpdateFeatureFlagRequest struct {
@@ -119,17 +119,17 @@ type UpdateFeatureFlagRequest struct {
 }
 
 type AuditLogResponse struct {
-	ID           int64      `json:"id"`
-	ActorID      *int64     `json:"actor_id,omitempty"`
-	ActorType    string     `json:"actor_type"`
-	Action       string     `json:"action"`
-	ResourceType string     `json:"resource_type"`
-	ResourceID   *int64     `json:"resource_id,omitempty"`
-	ResourceCode *string    `json:"resource_code,omitempty"`
-	Metadata     *string    `json:"metadata,omitempty"`
-	IPAddress    *string    `json:"ip_address,omitempty"`
-	UserAgent    *string    `json:"user_agent,omitempty"`
-	CreatedAt    time.Time  `json:"created_at"`
+	ID           int64     `json:"id"`
+	ActorID      *int64    `json:"actor_id,omitempty"`
+	ActorType    string    `json:"actor_type"`
+	Action       string    `json:"action"`
+	ResourceType string    `json:"resource_type"`
+	ResourceID   *int64    `json:"resource_id,omitempty"`
+	ResourceCode *string   `json:"resource_code,omitempty"`
+	Metadata     *string   `json:"metadata,omitempty"`
+	IPAddress    *string   `json:"ip_address,omitempty"`
+	UserAgent    *string   `json:"user_agent,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 type IntegrationTrafficResponse struct {

@@ -26,7 +26,6 @@ func (rt *Router) ChiRouter() chi.Router {
 }
 
 func (rt *Router) RegisterRoutes(authMiddleware, adminMiddleware func(http.Handler) http.Handler) {
-	// Public CMS routes
 	rt.router.Route("/cms", func(r chi.Router) {
 		r.Get("/articles", rt.handleListPublishedArticles)
 		r.Get("/articles/{slug}", rt.handleGetArticleBySlug)
@@ -35,7 +34,10 @@ func (rt *Router) RegisterRoutes(authMiddleware, adminMiddleware func(http.Handl
 		r.Get("/menus/{location}", rt.handleListMenus)
 	})
 
-	// Admin CMS routes
+	rt.router.Get("/sitemap.xml", rt.handleSitemap)
+	rt.router.Get("/robots.txt", rt.handleRobotsTxt)
+	rt.router.Get("/feed/products.xml", rt.handleProductFeed)
+
 	rt.router.Route("/admin/cms", func(r chi.Router) {
 		if authMiddleware != nil {
 			r.Use(authMiddleware)
@@ -53,6 +55,14 @@ func (rt *Router) RegisterRoutes(authMiddleware, adminMiddleware func(http.Handl
 		r.Post("/menus", rt.handleAdminUpsertMenu)
 		r.Get("/settings", rt.handleAdminListSettings)
 		r.Put("/settings", rt.handleAdminUpdateSetting)
+
+		r.Route("/seo", func(r chi.Router) {
+			r.Get("/templates", rt.handleAdminListSeoTemplates)
+			r.Post("/templates", rt.handleAdminCreateSeoTemplate)
+			r.Put("/templates/{key}", rt.handleAdminUpdateSeoTemplate)
+			r.Get("/settings", rt.handleAdminListSeoSettings)
+			r.Put("/settings", rt.handleAdminUpsertSeoSetting)
+		})
 	})
 }
 
@@ -328,6 +338,132 @@ func (rt *Router) handleAdminUpdateSetting(w http.ResponseWriter, r *http.Reques
 	st, err := rt.service.SetSetting(r.Context(), key, req)
 	if err != nil {
 		rt.writeError(w, r, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	rt.writeJSON(w, http.StatusOK, st)
+}
+
+func (rt *Router) handleSitemap(w http.ResponseWriter, r *http.Request) {
+	baseURL := r.URL.Query().Get("base_url")
+	xmlData, err := rt.service.GenerateSitemap(r.Context(), baseURL)
+	if err != nil {
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(xmlData))
+}
+
+func (rt *Router) handleRobotsTxt(w http.ResponseWriter, r *http.Request) {
+	baseURL := r.URL.Query().Get("base_url")
+	txt, err := rt.service.GenerateRobotsTxt(r.Context(), baseURL)
+	if err != nil {
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(txt))
+}
+
+func (rt *Router) handleProductFeed(w http.ResponseWriter, r *http.Request) {
+	baseURL := r.URL.Query().Get("base_url")
+	xmlData, err := rt.service.GenerateProductFeed(r.Context(), baseURL)
+	if err != nil {
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(xmlData))
+}
+
+func (rt *Router) handleAdminListSeoTemplates(w http.ResponseWriter, r *http.Request) {
+	templates, err := rt.service.ListSeoTemplates(r.Context())
+	if err != nil {
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	if templates == nil {
+		templates = []schema.SeoTemplateResponse{}
+	}
+	rt.writeJSON(w, http.StatusOK, templates)
+}
+
+func (rt *Router) handleAdminCreateSeoTemplate(w http.ResponseWriter, r *http.Request) {
+	var req schema.CreateSeoTemplateRequest
+	defer r.Body.Close()
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_body", "invalid request body")
+		return
+	}
+	t, err := rt.service.CreateSeoTemplate(r.Context(), req)
+	if err != nil {
+		if errors.Is(err, service.ErrInvalidInput) {
+			rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "key, name, and title_template are required")
+			return
+		}
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	rt.writeJSON(w, http.StatusCreated, t)
+}
+
+func (rt *Router) handleAdminUpdateSeoTemplate(w http.ResponseWriter, r *http.Request) {
+	key := chi.URLParam(r, "key")
+	if key == "" {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "template key is required")
+		return
+	}
+	var req schema.UpdateSeoTemplateRequest
+	defer r.Body.Close()
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_body", "invalid request body")
+		return
+	}
+	t, err := rt.service.UpdateSeoTemplate(r.Context(), key, req)
+	if err != nil {
+		if errors.Is(err, service.ErrNotFound) {
+			rt.writeError(w, r, http.StatusNotFound, "not_found", "seo template not found")
+			return
+		}
+		if errors.Is(err, service.ErrInvalidInput) {
+			rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "name and title_template are required")
+			return
+		}
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	rt.writeJSON(w, http.StatusOK, t)
+}
+
+func (rt *Router) handleAdminListSeoSettings(w http.ResponseWriter, r *http.Request) {
+	settings, err := rt.service.ListSeoSettings(r.Context())
+	if err != nil {
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	if settings == nil {
+		settings = []schema.SeoSettingsResponse{}
+	}
+	rt.writeJSON(w, http.StatusOK, settings)
+}
+
+func (rt *Router) handleAdminUpsertSeoSetting(w http.ResponseWriter, r *http.Request) {
+	var req schema.UpsertSeoSettingRequest
+	defer r.Body.Close()
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_body", "invalid request body")
+		return
+	}
+	st, err := rt.service.UpsertSeoSetting(r.Context(), req)
+	if err != nil {
+		if errors.Is(err, service.ErrInvalidInput) {
+			rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "key and value are required")
+			return
+		}
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 	rt.writeJSON(w, http.StatusOK, st)

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/rand/v2"
@@ -14,6 +15,9 @@ import (
 	"github.com/atlas-platform/backend/internal/modules/cms/schema"
 	"github.com/jackc/pgx/v5"
 )
+
+var jsonMarshal = json.Marshal
+var jsonUnmarshal = json.Unmarshal
 
 var (
 	ErrNotFound     = errors.New("cms resource not found")
@@ -322,4 +326,235 @@ func toSettingResponse(st repository.Setting) *schema.SettingResponse {
 	return &schema.SettingResponse{
 		Key: st.Key, Value: st.Value, GroupName: st.GroupName, UpdatedAt: st.UpdatedAt,
 	}
+}
+
+// SEO Templates
+func (s *CMSService) CreateSeoTemplate(ctx context.Context, req schema.CreateSeoTemplateRequest) (*schema.SeoTemplateResponse, error) {
+	if strings.TrimSpace(req.Key) == "" || strings.TrimSpace(req.Name) == "" || strings.TrimSpace(req.TitleTemplate) == "" {
+		return nil, ErrInvalidInput
+	}
+	var sd []byte
+	if req.StructuredData != nil {
+		var err error
+		sd, err = jsonMarshal(req.StructuredData)
+		if err != nil {
+			return nil, ErrInvalidInput
+		}
+	}
+	t, err := s.repo.CreateSeoTemplate(ctx, req.Key, req.Name, req.TitleTemplate, req.DescriptionTemplate, sd)
+	if err != nil {
+		return nil, fmt.Errorf("create seo template: %w", err)
+	}
+	return toSeoTemplateResponse(t), nil
+}
+
+func (s *CMSService) ListSeoTemplates(ctx context.Context) ([]schema.SeoTemplateResponse, error) {
+	templates, err := s.repo.ListSeoTemplates(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]schema.SeoTemplateResponse, 0, len(templates))
+	for _, t := range templates {
+		out = append(out, *toSeoTemplateResponse(t))
+	}
+	return out, nil
+}
+
+func (s *CMSService) UpdateSeoTemplate(ctx context.Context, key string, req schema.UpdateSeoTemplateRequest) (*schema.SeoTemplateResponse, error) {
+	if strings.TrimSpace(req.Name) == "" || strings.TrimSpace(req.TitleTemplate) == "" {
+		return nil, ErrInvalidInput
+	}
+	var sd []byte
+	if req.StructuredData != nil {
+		var err error
+		sd, err = jsonMarshal(req.StructuredData)
+		if err != nil {
+			return nil, ErrInvalidInput
+		}
+	}
+	t, err := s.repo.UpdateSeoTemplate(ctx, key, req.Name, req.TitleTemplate, req.DescriptionTemplate, sd)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("update seo template: %w", err)
+	}
+	return toSeoTemplateResponse(t), nil
+}
+
+// SEO Settings
+func (s *CMSService) UpsertSeoSetting(ctx context.Context, req schema.UpsertSeoSettingRequest) (*schema.SeoSettingsResponse, error) {
+	if strings.TrimSpace(req.Key) == "" || strings.TrimSpace(req.Value) == "" {
+		return nil, ErrInvalidInput
+	}
+	st, err := s.repo.UpsertSeoSetting(ctx, req.Key, req.Value)
+	if err != nil {
+		return nil, fmt.Errorf("upsert seo setting: %w", err)
+	}
+	return toSeoSettingResponse(st), nil
+}
+
+func (s *CMSService) ListSeoSettings(ctx context.Context) ([]schema.SeoSettingsResponse, error) {
+	settings, err := s.repo.ListSeoSettings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]schema.SeoSettingsResponse, 0, len(settings))
+	for _, st := range settings {
+		out = append(out, *toSeoSettingResponse(st))
+	}
+	return out, nil
+}
+
+// Sitemap
+func (s *CMSService) GenerateSitemap(ctx context.Context, baseURL string) (string, error) {
+	entries, err := s.repo.ListSitemapEntries(ctx)
+	if err != nil {
+		return "", fmt.Errorf("list sitemap entries: %w", err)
+	}
+	baseURL = strings.TrimRight(baseURL, "/")
+	if baseURL == "" {
+		baseURL = "https://example.com"
+	}
+
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>`)
+	b.WriteString("\n")
+	b.WriteString(`<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">`)
+	b.WriteString("\n")
+	for _, e := range entries {
+		b.WriteString("  <url>\n")
+		b.WriteString("    <loc>")
+		b.WriteString(xmlEscape(baseURL + e.Loc))
+		b.WriteString("</loc>\n")
+		b.WriteString("    <lastmod>")
+		b.WriteString(e.LastMod.Format(time.RFC3339))
+		b.WriteString("</lastmod>\n")
+		b.WriteString("  </url>\n")
+	}
+	b.WriteString("</urlset>")
+	return b.String(), nil
+}
+
+// Robots.txt
+func (s *CMSService) GenerateRobotsTxt(ctx context.Context, baseURL string) (string, error) {
+	baseURL = strings.TrimRight(baseURL, "/")
+	if baseURL == "" {
+		baseURL = "https://example.com"
+	}
+	var b strings.Builder
+	b.WriteString("User-agent: *\n")
+	b.WriteString("Allow: /\n")
+	b.WriteString("Disallow: /admin/\n")
+	b.WriteString("\n")
+	b.WriteString("Sitemap: ")
+	b.WriteString(baseURL)
+	b.WriteString("/sitemap.xml\n")
+	return b.String(), nil
+}
+
+// Product Feed
+func (s *CMSService) GenerateProductFeed(ctx context.Context, baseURL string) (string, error) {
+	entries, err := s.repo.ListProductFeedEntries(ctx)
+	if err != nil {
+		return "", fmt.Errorf("list product feed entries: %w", err)
+	}
+	baseURL = strings.TrimRight(baseURL, "/")
+	if baseURL == "" {
+		baseURL = "https://example.com"
+	}
+
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>`)
+	b.WriteString("\n")
+	b.WriteString(`<feed xmlns="http://www.w3.org/2005/Atom">`)
+	b.WriteString("\n")
+	b.WriteString("  <title>Atlas Platform Product Feed</title>\n")
+	b.WriteString("  <link href=\"")
+	b.WriteString(xmlEscape(baseURL))
+	b.WriteString("\"/>\n")
+	b.WriteString("  <updated>")
+	b.WriteString(time.Now().UTC().Format(time.RFC3339))
+	b.WriteString("</updated>\n")
+	for _, e := range entries {
+		b.WriteString("  <entry>\n")
+		b.WriteString("    <id>")
+		b.WriteString(xmlEscape(e.Code))
+		b.WriteString("</id>\n")
+		b.WriteString("    <title>")
+		b.WriteString(xmlEscape(e.Name))
+		b.WriteString("</title>\n")
+		b.WriteString("    <link href=\"")
+		b.WriteString(xmlEscape(baseURL + "/products/" + e.Slug))
+		b.WriteString("\"/>\n")
+		b.WriteString("    <updated>")
+		b.WriteString(e.UpdatedAt.Format(time.RFC3339))
+		b.WriteString("</updated>\n")
+		if e.Description != nil {
+			b.WriteString("    <summary>")
+			b.WriteString(xmlEscape(*e.Description))
+			b.WriteString("</summary>\n")
+		}
+		b.WriteString("    <category term=\"")
+		b.WriteString(xmlEscape(e.CategoryName))
+		b.WriteString("\"/>\n")
+		if e.BrandName != nil {
+			b.WriteString("    <author><name>")
+			b.WriteString(xmlEscape(*e.BrandName))
+			b.WriteString("</name></author>\n")
+		}
+		if e.Gtin != nil {
+			b.WriteString("    <gtin>")
+			b.WriteString(xmlEscape(*e.Gtin))
+			b.WriteString("</gtin>\n")
+		}
+		if e.Sku != nil {
+			b.WriteString("    <sku>")
+			b.WriteString(xmlEscape(*e.Sku))
+			b.WriteString("</sku>\n")
+		}
+		if e.PriceMinor != nil {
+			b.WriteString("    <price>")
+			b.WriteString(fmt.Sprintf("%d %s", *e.PriceMinor, e.Currency))
+			b.WriteString("</price>\n")
+		}
+		if e.ImageURL != nil {
+			b.WriteString("    <link rel=\"enclosure\" href=\"")
+			b.WriteString(xmlEscape(*e.ImageURL))
+			b.WriteString("\"/>\n")
+		}
+		b.WriteString("  </entry>\n")
+	}
+	b.WriteString("</feed>")
+	return b.String(), nil
+}
+
+func toSeoTemplateResponse(t repository.SeoTemplate) *schema.SeoTemplateResponse {
+	resp := &schema.SeoTemplateResponse{
+		Key:                 t.Key,
+		Name:                t.Name,
+		TitleTemplate:       t.TitleTemplate,
+		DescriptionTemplate: t.DescriptionTemplate,
+		CreatedAt:           t.CreatedAt,
+		UpdatedAt:           t.UpdatedAt,
+	}
+	if len(t.StructuredData) > 0 {
+		_ = jsonUnmarshal(t.StructuredData, &resp.StructuredData)
+	}
+	return resp
+}
+
+func toSeoSettingResponse(s repository.SeoSetting) *schema.SeoSettingsResponse {
+	return &schema.SeoSettingsResponse{
+		Key: s.Key, Value: s.Value, CreatedAt: s.CreatedAt, UpdatedAt: s.UpdatedAt,
+	}
+}
+
+func xmlEscape(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
+	s = strings.ReplaceAll(s, "\"", "&quot;")
+	s = strings.ReplaceAll(s, "'", "&apos;")
+	return s
 }

@@ -112,3 +112,47 @@ type UpdateSettingRequest struct {
 	Value     string `json:"value"`
 	GroupName string `json:"group_name,omitempty"`
 }
+
+type SeoTemplateResponse struct {
+	Key                 string         `json:"key"`
+	Name                string         `json:"name"`
+	TitleTemplate       string         `json:"title_template"`
+	DescriptionTemplate *string        `json:"description_template,omitempty"`
+	StructuredData      map[string]any `json:"structured_data,omitempty"`
+	CreatedAt           time.Time      `json:"created_at"`
+	UpdatedAt           time.Time      `json:"updated_at"`
+}
+
+type CreateSeoTemplateRequest struct {
+	Key                 string         `json:"key"`
+	Name                string         `json:"name"`
+	TitleTemplate       string         `json:"title_template"`
+	DescriptionTemplate *string        `json:"description_template,omitempty"`
+	StructuredData      map[string]any `json:"structured_data,omitempty"`
+}
+
+type UpdateSeoTemplateRequest struct {
+	Name                string         `json:"name"`
+	TitleTemplate       string         `json:"title_template"`
+	DescriptionTemplate *string        `json:"description_template,omitempty"`
+	StructuredData      map[string]any `json:"structured_data,omitempty"`
+}
+
+type SeoSettingsResponse struct {
+	Key       string    `json:"key"`
+	Value     string    `json:"value"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type UpsertSeoSettingRequest struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+type SitemapURL struct {
+	Loc        string     `xml:"loc"`
+	LastMod    *time.Time `xml:"lastmod,omitempty"`
+	ChangeFreq string     `xml:"changefreq,omitempty"`
+	Priority   float64    `xml:"priority,omitempty"`
+}

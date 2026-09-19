@@ -371,6 +371,22 @@ Prefixes are shown relative to `/api/v1`. **A** = authenticated, **S** = staff p
 | POST | `/admin/cms/menus` | S | Create a menu entry |
 | GET | `/admin/cms/settings` | S | Site settings |
 | PUT | `/admin/cms/settings` | S | Update site settings |
+| GET | `/sitemap.xml` | P | XML sitemap of pages, articles, products, categories |
+| GET | `/robots.txt` | P | Robots.txt with sitemap reference |
+| GET | `/feed/products.xml` | P | Atom product feed |
+| GET | `/admin/cms/seo/templates` | S | List SEO templates |
+| POST | `/admin/cms/seo/templates` | S | Create SEO template |
+| PUT | `/admin/cms/seo/templates/{key}` | S | Update SEO template |
+| GET | `/admin/cms/seo/settings` | S | List SEO settings |
+| PUT | `/admin/cms/seo/settings` | S | Upsert SEO setting |
+| GET | `/sitemap.xml` | P | XML sitemap of pages, articles, products, categories |
+| GET | `/robots.txt` | P | Robots.txt with sitemap reference |
+| GET | `/feed/products.xml` | P | Atom product feed |
+| GET | `/admin/cms/seo/templates` | S | List SEO templates |
+| POST | `/admin/cms/seo/templates` | S | Create SEO template |
+| PUT | `/admin/cms/seo/templates/{key}` | S | Update SEO template |
+| GET | `/admin/cms/seo/settings` | S | List SEO settings |
+| PUT | `/admin/cms/seo/settings` | S | Upsert SEO setting |
 
 ### `suppliers`
 
