@@ -383,10 +383,82 @@ Prefixes are shown relative to `/api/v1`. **A** = authenticated, **S** = staff p
 | GET | `/robots.txt` | P | Robots.txt with sitemap reference |
 | GET | `/feed/products.xml` | P | Atom product feed |
 | GET | `/admin/cms/seo/templates` | S | List SEO templates |
-| POST | `/admin/cms/seo/templates` | S | Create SEO template |
-| PUT | `/admin/cms/seo/templates/{key}` | S | Update SEO template |
+| GET | `/cms/homepage` | P | Published homepage layout for the storefront |
+| GET | `/admin/cms/homepage` | S | Current draft homepage layout for editing |
+| PUT | `/admin/cms/homepage` | S | Replace the entire draft layout (sections and order) |
 | GET | `/admin/cms/seo/settings` | S | List SEO settings |
 | PUT | `/admin/cms/seo/settings` | S | Upsert SEO setting |
+| POST | `/admin/cms/homepage/publish` | S | Copy draft to published and set published_at |
+
+#### Homepage builder contract
+
+The homepage is a **singleton composed document** — one layout with an ordered array of heterogeneous sections. It follows the article draft/publish pattern: edits go to the draft; the storefront reads only the published snapshot.
+
+**Section object**
+
+```json
+{
+  "code": "sec_abc123",
+  "section_type": "hero_banner",
+  "title": "Summer Collection",
+  "is_active": true,
+  "sort_order": 0,
+  "config": { "banner_code": "ban_..." }
+}
+```
+
+| Field | Type | Required | Rule |
+|---|---|---|---|
+| `code` | string | yes | Stable opaque identifier. Client-supplied on create; server-generated if omitted. |
+| `section_type` | string | yes | Non-empty. Open — the backend does not enforce an enum; rendering is a frontend concern. |
+| `title` | string | no | Display label for the admin UI. |
+| `is_active` | bool | no | Default `true`. Inactive sections are excluded from the published output. |
+| `sort_order` | int | no | Position in the layout. The PUT body's array order is authoritative; `sort_order` is stored for reference. |
+| `config` | object | no | Arbitrary JSON. Type-specific settings (references to banners, products, categories, rich text, etc.). |
+
+**Layout response envelope**
+
+```json
+{
+  "sections": [],
+  "published_sections": [],
+  "published_at": "2026-09-19T10:00:00Z",
+  "updated_at": "2026-09-19T10:05:00Z",
+  "updated_by": "usr_..."
+}
+```
+
+The public endpoint (`GET /cms/homepage`) returns only `sections` (the published snapshot), `published_at`, and omits `updated_by`. The admin endpoint (`GET /admin/cms/homepage`) returns the full envelope — the draft `sections` plus the last `published_sections` for diff/preview.
+
+**Endpoint detail**
+
+| Endpoint | Behaviour |
+|---|---|
+| `GET /cms/homepage` | Returns the published layout. If nothing has been published yet, returns `200` with an empty `sections` array and `published_at: null`. |
+| `GET /admin/cms/homepage` | Returns the current draft layout. If no draft exists, returns `200` with empty arrays. Includes `published_sections` for side-by-side preview. |
+| `PUT /admin/cms/homepage` | Full replacement of the draft. The request body is `{ "sections": [...] }`. The server validates each section (non-empty `code`, non-empty `section_type`), assigns `sort_order` from array position, and stamps `updated_at` and `updated_by`. Returns the full layout envelope. |
+| `POST /admin/cms/homepage/publish` | Copies the current draft `sections` to `published_sections`, sets `published_at` to now, strips inactive sections from the published output. Returns the full layout envelope. Idempotent — calling publish twice with no intervening draft change is a no-op that returns `200`. |
+
+**Validation**
+
+| Condition | Status | Code |
+|---|---|---|
+| `sections` array missing or not an array | 400 | `invalid_body` |
+| Section with empty `code` or empty `section_type` | 400 | `invalid_request` |
+| Section `config` is not a JSON object | 400 | `invalid_request` |
+| Publish with zero active sections in draft | 422 | `no_active_sections` |
+
+**Ordering semantics.** The array order in the PUT body is authoritative. The server assigns `sort_order` sequentially (0, 1, 2, …) based on position. There is no separate reorder endpoint — reordering is done by changing the array order and sending a new PUT.
+
+**Draft vs published state.** The draft and published layouts are independent snapshots. Editing the draft does not affect the published homepage. Publishing copies draft → published atomically. There is no approval workflow — any staff member with `cms.edit` can publish.
+
+**Preview semantics.** The admin GET returns both `sections` (draft) and `published_sections` (last published). The frontend renders a side-by-side or overlay preview from these two arrays. The public GET returns only the published snapshot. Previewing never mutates state.
+
+**Publish semantics.** Publish is a server-side copy: `draft_sections → published_sections`, `published_at = now()`, inactive sections excluded. The published snapshot is immutable until the next publish. A publish with no intervening draft change returns `200` (idempotent).
+
+**Concurrency.** The PUT endpoint uses optimistic locking. The request body includes `expected_updated_at`; if it does not match the server's current `updated_at`, the server returns `409` with code `concurrent_modification`. The client re-fetches the draft, merges, and retries. The publish endpoint uses a row-level lock (`SELECT … FOR UPDATE`) to prevent two simultaneous publishes from interleaving.
+
+**Idempotency.** Homepage mutations do not use idempotency keys (they are CMS content edits, not financial operations). Optimistic locking handles concurrent edits. Publish is naturally idempotent.
 
 ### `suppliers`
 
@@ -509,6 +581,21 @@ Every AI route returns this shape. Detail in [12 AI Features](12-ai-features.md)
 | POST | `/admin/erp/sync/stock` | S | Trigger a stock sync |
 | GET | `/admin/erp/sync/{job_id}` | S | Sync job status and drift report |
 | POST | `/admin/erp/orders/{id}/dispatch` | S | Force re-dispatch of an order |
+
+### `reports` — operational reporting and export centre
+
+| Method | Path | Access | Purpose |
+|---|---|---|---|
+| GET | `/admin/reports/sales` | S | Sales report by period, supplier, category |
+| GET | `/admin/reports/buyers` | S | Buyer acquisition, retention, frequency |
+| GET | `/admin/reports/products` | S | Product velocity, substitution rate, out-of-stock impact |
+| GET | `/admin/reports/suppliers` | S | Supplier fill rate, lead time, cancellations |
+| GET | `/admin/reports/promotions` | S | Promotion cost and uplift |
+| GET | `/admin/reports/operations` | S | Operations SLA, exceptions, manual intervention rate |
+| GET | `/admin/reports/finance` | S | Financial margin, outstanding, write-offs |
+| GET | `/admin/reports/exports` | S | List export jobs |
+| POST | `/admin/reports/exports` | S | Create an async export job |
+| GET | `/admin/reports/exports/{code}/download` | S | Download completed export file |
 
 ---
 
