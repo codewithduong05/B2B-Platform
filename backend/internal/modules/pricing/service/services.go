@@ -14,7 +14,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-
 var (
 	ErrPriceListNotFound     = errors.New("price list not found")
 	ErrPriceListItemNotFound = errors.New("price list item not found")
@@ -31,10 +30,10 @@ var (
 )
 
 type PriceListService struct {
-	priceListRepo   *repository.PriceListRepository
-	priceItemRepo   *repository.PriceListItemRepository
+	priceListRepo    *repository.PriceListRepository
+	priceItemRepo    *repository.PriceListItemRepository
 	quantityTierRepo *repository.QuantityTierRepository
-	assignmentRepo  *repository.PriceListAssignmentRepository
+	assignmentRepo   *repository.PriceListAssignmentRepository
 }
 
 func NewPriceListService() *PriceListService {
@@ -198,23 +197,23 @@ func (s *PriceListService) UpdatePriceList(ctx context.Context, id string, req s
 	params := pricing.UpdatePriceListParams{ID: pl.ID}
 
 	if req.Name != nil {
-		params.Name = pgtype.Text{String: *req.Name, Valid: true}
+		params.Name = *req.Name
 	}
 	if req.Description != nil {
 		params.Description = pgtype.Text{String: *req.Description, Valid: true}
 	}
 	if req.Status != nil {
-		params.Status = pgtype.Text{String: *req.Status, Valid: true}
+		params.Status = pricing.PricingPriceListStatus(*req.Status)
 	}
 	if req.PriceType != nil {
-		params.PriceType = pgtype.Text{String: *req.PriceType, Valid: true}
+		params.PriceType = pricing.PricingPriceType(*req.PriceType)
 	}
 	if req.Currency != nil {
-		params.Currency = pgtype.Text{String: *req.Currency, Valid: true}
+		params.Currency = *req.Currency
 	}
 	if req.EffectiveFrom != nil {
 		if t, err := time.Parse(time.RFC3339, *req.EffectiveFrom); err == nil {
-			params.EffectiveFrom = pgtype.Timestamptz{Time: t, Valid: true}
+			params.EffectiveFrom = t
 		}
 	}
 	if req.EffectiveTo != nil {
@@ -223,7 +222,7 @@ func (s *PriceListService) UpdatePriceList(ctx context.Context, id string, req s
 		}
 	}
 	if req.IsActive != nil {
-		params.IsActive = pgtype.Bool{Bool: *req.IsActive, Valid: true}
+		params.IsActive = *req.IsActive
 	}
 
 	updated, err := s.priceListRepo.UpdatePriceList(ctx, pl.ID, params)
@@ -312,7 +311,8 @@ func (s *PriceListService) CreatePriceListItem(ctx context.Context, priceListID 
 		return nil, fmt.Errorf("get created price list item: %w", err)
 	}
 
-	return s.toPriceListItemSummary(item), nil
+	summary := s.toPriceListItemSummary(item)
+	return &summary, nil
 }
 
 func (s *PriceListService) GetPriceListItems(ctx context.Context, priceListID int64) ([]schema.PriceListItemSummary, error) {
@@ -330,9 +330,7 @@ func (s *PriceListService) GetPriceListItems(ctx context.Context, priceListID in
 }
 
 func (s *PriceListService) GetPriceForProduct(ctx context.Context, priceListID, productID, unitID, quantity int64) (*schema.PriceListItemSummary, error) {
-	pp := getPriceForProductParams(priceListID, productID, unitID)
-
-	items, err := s.priceItemRepo.GetPriceForProduct(ctx, pp)
+	items, err := s.priceItemRepo.GetPriceForProduct(ctx, priceListID, productID, unitID)
 	if err != nil {
 		return nil, fmt.Errorf("get price for product: %w", err)
 	}
@@ -365,10 +363,10 @@ func (s *PriceListService) GetPriceForProduct(ctx context.Context, priceListID, 
 						continue
 					}
 					return &schema.PriceListItemSummary{
-						ID:           tier.ID,
-						PriceMinor:   tier.PriceMinor,
-						MinQuantity:  int(tier.MinQuantity),
-						MaxQuantity:  intPtr(int(tier.MaxQuantity.Int32)),
+						ID:            tier.ID,
+						PriceMinor:    tier.PriceMinor,
+						MinQuantity:   int(tier.MinQuantity),
+						MaxQuantity:   intPtr(int(tier.MaxQuantity.Int32)),
 						EffectiveFrom: tier.CreatedAt,
 					}, nil
 				}
@@ -380,9 +378,7 @@ func (s *PriceListService) GetPriceForProduct(ctx context.Context, priceListID, 
 }
 
 func (s *PriceListService) GetPriceForQuote(ctx context.Context, priceListID, productID, unitID, quantity int64) (*schema.PriceQuoteLineResponse, error) {
-	pq := getPriceForQuoteParams(priceListID, productID, unitID)
-
-	items, err := s.priceItemRepo.GetPriceForQuote(ctx, pq)
+	items, err := s.priceItemRepo.GetPriceForQuote(ctx, priceListID, productID, unitID)
 	if err != nil {
 		return nil, fmt.Errorf("get price for quote: %w", err)
 	}
@@ -426,16 +422,16 @@ func (s *PriceListService) GetPriceForQuote(ctx context.Context, priceListID, pr
 	}
 
 	return &schema.PriceQuoteLineResponse{
-		ProductID:      productID,
-		UnitID:         unitID,
-		Quantity:       int(quantity),
-		UnitPriceMinor: unitPrice,
+		ProductID:       productID,
+		UnitID:          unitID,
+		Quantity:        int(quantity),
+		UnitPriceMinor:  unitPrice,
 		TotalPriceMinor: unitPrice * quantity,
-		Currency:       bestMatch.Currency,
-		PriceListID:    priceListID,
+		Currency:        bestMatch.Currency,
+		PriceListID:     priceListID,
 		PriceListItemID: bestMatch.ID,
-		PriceType:      "standard",
-		TierID:         tierID,
+		PriceType:       "standard",
+		TierID:          tierID,
 	}, nil
 }
 
@@ -482,13 +478,13 @@ func (s *PriceListService) CreatePriceListAssignment(ctx context.Context, req sc
 	}
 
 	params := pricing.CreatePriceListAssignmentParams{
-		Code:            generateCode(),
-		PriceListID:     req.PriceListID,
-		BuyerProfileID:  req.BuyerProfileID,
-		AssignedBy:      pgtype.Int8{Int64: 0, Valid: false},
-		EffectiveFrom:   time.Now(),
-		EffectiveTo:     pgtype.Timestamptz{},
-		IsActive:        req.IsActive,
+		Code:           generateCode(),
+		PriceListID:    req.PriceListID,
+		BuyerProfileID: req.BuyerProfileID,
+		AssignedBy:     pgtype.Int8{Int64: 0, Valid: false},
+		EffectiveFrom:  time.Now(),
+		EffectiveTo:    pgtype.Timestamptz{},
+		IsActive:       req.IsActive,
 	}
 
 	if req.EffectiveFrom != "" {
@@ -519,18 +515,18 @@ func (s *PriceListService) ListPriceListAssignments(ctx context.Context, req sch
 	limit := int32(req.PageSize)
 	offset := int32((req.Page - 1) * req.PageSize)
 
-	var priceListID pgtype.Int8
-	var buyerProfileID pgtype.Int8
-	var isActive pgtype.Bool
+	var priceListID *int64
+	var buyerProfileID *int64
+	var isActive *bool
 
 	if req.PriceListID != nil {
-		priceListID = pgtype.Int8{Int64: *req.PriceListID, Valid: true}
+		priceListID = req.PriceListID
 	}
 	if req.BuyerID != nil {
-		buyerProfileID = pgtype.Int8{Int64: *req.BuyerID, Valid: true}
+		buyerProfileID = req.BuyerID
 	}
 	if req.IsActive != nil {
-		isActive = pgtype.Bool{Bool: *req.IsActive, Valid: true}
+		isActive = req.IsActive
 	}
 
 	filters := repository.PriceListAssignmentFilters{
@@ -672,15 +668,15 @@ func (s *PriceListService) toPriceListAssignmentSummary(a pricing.PricingPriceLi
 	}
 
 	return &schema.PriceListAssignmentSummary{
-		Code:            a.Code,
-		PriceListID:     a.PriceListID,
-		BuyerProfileID:  a.BuyerProfileID,
-		AssignedBy:      assignedBy,
-		EffectiveFrom:   a.EffectiveFrom,
-		EffectiveTo:     effectiveTo,
-		IsActive:        a.IsActive,
-		CreatedAt:       a.CreatedAt,
-		UpdatedAt:       a.UpdatedAt,
+		Code:           a.Code,
+		PriceListID:    a.PriceListID,
+		BuyerProfileID: a.BuyerProfileID,
+		AssignedBy:     assignedBy,
+		EffectiveFrom:  a.EffectiveFrom,
+		EffectiveTo:    effectiveTo,
+		IsActive:       a.IsActive,
+		CreatedAt:      a.CreatedAt,
+		UpdatedAt:      a.UpdatedAt,
 	}
 }
 

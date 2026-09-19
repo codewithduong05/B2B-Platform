@@ -66,3 +66,25 @@ sql:
             go_type: "string"
           - db_type: "bigserial"
             go_type: "int64"
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "internal/database/queries/inventory"
+    gen:
+      go:
+        package: "inventory"
+        out: "internal/database/queries/inventory"
+        sql_package: "pgx/v5"
+        emit_json_tags: true
+        emit_prepared_queries: false
+        emit_interface: true
+        emit_exact_table_names: false
+        emit_empty_slices: true
+        overrides:
+          - db_type: "uuid"
+            go_type: "github.com/google/uuid.UUID"
+          - db_type: "timestamptz"
+            go_type: "time.Time"
+          - db_type: "numeric"
+            go_type: "string"
+          - db_type: "bigserial"
+            go_type: "int64"

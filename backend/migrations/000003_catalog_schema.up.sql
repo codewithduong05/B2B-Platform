@@ -74,6 +74,7 @@ CREATE TABLE catalog.handling_class (
     sort_order INT NOT NULL DEFAULT 0,
     temperature_min_c INT,
     temperature_max_c INT,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     deleted_at TIMESTAMPTZ
@@ -253,5 +254,5 @@ CREATE TRIGGER update_product_updated_at BEFORE UPDATE ON catalog.product FOR EA
 CREATE TRIGGER update_product_unit_updated_at BEFORE UPDATE ON catalog.product_unit FOR EACH ROW EXECUTE FUNCTION catalog.update_updated_at_column();
 CREATE TRIGGER update_product_media_updated_at BEFORE UPDATE ON catalog.product_media FOR EACH ROW EXECUTE FUNCTION catalog.update_updated_at_column();
 CREATE TRIGGER update_attribute_updated_at BEFORE UPDATE ON catalog.attribute FOR EACH ROW EXECUTE FUNCTION catalog.update_updated_at_column();
-CREATE TRIGGER update_attribute_value_updated_at BEFORE UPDATE ON catalog.attribute_value FOR EACH ROW EXECUTE FUNCTION catalog.update_attribute_value_updated_at();
+CREATE TRIGGER update_attribute_value_updated_at BEFORE UPDATE ON catalog.attribute_value FOR EACH ROW EXECUTE FUNCTION catalog.update_updated_at_column();
 CREATE TRIGGER update_product_attribute_updated_at BEFORE UPDATE ON catalog.product_attribute FOR EACH ROW EXECUTE FUNCTION catalog.update_updated_at_column();

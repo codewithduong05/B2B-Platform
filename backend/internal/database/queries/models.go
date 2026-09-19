@@ -271,6 +271,138 @@ func (ns NullIdentityVerificationStatus) Value() (driver.Value, error) {
 	return string(ns.IdentityVerificationStatus), nil
 }
 
+type InventoryLotStatus string
+
+const (
+	InventoryLotStatusActive      InventoryLotStatus = "active"
+	InventoryLotStatusDepleted    InventoryLotStatus = "depleted"
+	InventoryLotStatusExpired     InventoryLotStatus = "expired"
+	InventoryLotStatusQuarantined InventoryLotStatus = "quarantined"
+)
+
+func (e *InventoryLotStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = InventoryLotStatus(s)
+	case string:
+		*e = InventoryLotStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for InventoryLotStatus: %T", src)
+	}
+	return nil
+}
+
+type NullInventoryLotStatus struct {
+	InventoryLotStatus InventoryLotStatus `json:"inventory_lot_status"`
+	Valid              bool               `json:"valid"` // Valid is true if InventoryLotStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullInventoryLotStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.InventoryLotStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.InventoryLotStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullInventoryLotStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.InventoryLotStatus), nil
+}
+
+type InventoryQuarantineStatus string
+
+const (
+	InventoryQuarantineStatusPending     InventoryQuarantineStatus = "pending"
+	InventoryQuarantineStatusQuarantined InventoryQuarantineStatus = "quarantined"
+	InventoryQuarantineStatusReleased    InventoryQuarantineStatus = "released"
+	InventoryQuarantineStatusDisposed    InventoryQuarantineStatus = "disposed"
+)
+
+func (e *InventoryQuarantineStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = InventoryQuarantineStatus(s)
+	case string:
+		*e = InventoryQuarantineStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for InventoryQuarantineStatus: %T", src)
+	}
+	return nil
+}
+
+type NullInventoryQuarantineStatus struct {
+	InventoryQuarantineStatus InventoryQuarantineStatus `json:"inventory_quarantine_status"`
+	Valid                     bool                      `json:"valid"` // Valid is true if InventoryQuarantineStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullInventoryQuarantineStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.InventoryQuarantineStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.InventoryQuarantineStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullInventoryQuarantineStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.InventoryQuarantineStatus), nil
+}
+
+type InventoryReservationStatus string
+
+const (
+	InventoryReservationStatusReserved  InventoryReservationStatus = "reserved"
+	InventoryReservationStatusAllocated InventoryReservationStatus = "allocated"
+	InventoryReservationStatusReleased  InventoryReservationStatus = "released"
+	InventoryReservationStatusExpired   InventoryReservationStatus = "expired"
+)
+
+func (e *InventoryReservationStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = InventoryReservationStatus(s)
+	case string:
+		*e = InventoryReservationStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for InventoryReservationStatus: %T", src)
+	}
+	return nil
+}
+
+type NullInventoryReservationStatus struct {
+	InventoryReservationStatus InventoryReservationStatus `json:"inventory_reservation_status"`
+	Valid                      bool                       `json:"valid"` // Valid is true if InventoryReservationStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullInventoryReservationStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.InventoryReservationStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.InventoryReservationStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullInventoryReservationStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.InventoryReservationStatus), nil
+}
+
 type PricingPriceListStatus string
 
 const (
@@ -421,6 +553,7 @@ type CatalogHandlingClass struct {
 	SortOrder       int32                    `json:"sort_order"`
 	TemperatureMinC pgtype.Int4              `json:"temperature_min_c"`
 	TemperatureMaxC pgtype.Int4              `json:"temperature_max_c"`
+	IsActive        bool                     `json:"is_active"`
 	CreatedAt       time.Time                `json:"created_at"`
 	UpdatedAt       time.Time                `json:"updated_at"`
 	DeletedAt       pgtype.Timestamptz       `json:"deleted_at"`
@@ -784,6 +917,64 @@ type IdentityVerificationDocument struct {
 	UploadedBy                pgtype.Int8        `json:"uploaded_by"`
 	CreatedAt                 time.Time          `json:"created_at"`
 	DeletedAt                 pgtype.Timestamptz `json:"deleted_at"`
+}
+
+type InventoryLot struct {
+	ID                int64              `json:"id"`
+	Code              string             `json:"code"`
+	StockLevelID      int64              `json:"stock_level_id"`
+	LotNumber         string             `json:"lot_number"`
+	InitialQuantity   int32              `json:"initial_quantity"`
+	AvailableQuantity int32              `json:"available_quantity"`
+	ReservedQuantity  int32              `json:"reserved_quantity"`
+	Status            InventoryLotStatus `json:"status"`
+	IsQuarantined     bool               `json:"is_quarantined"`
+	ProductionDate    pgtype.Date        `json:"production_date"`
+	ExpiresAt         pgtype.Timestamptz `json:"expires_at"`
+	CreatedAt         time.Time          `json:"created_at"`
+	UpdatedAt         time.Time          `json:"updated_at"`
+	DeletedAt         pgtype.Timestamptz `json:"deleted_at"`
+}
+
+type InventoryQuarantineRecord struct {
+	ID               int64                     `json:"id"`
+	Code             string                    `json:"code"`
+	LotID            int64                     `json:"lot_id"`
+	Reason           string                    `json:"reason"`
+	Status           InventoryQuarantineStatus `json:"status"`
+	AdjustedQuantity int32                     `json:"adjusted_quantity"`
+	AdjustedBy       pgtype.Int8               `json:"adjusted_by"`
+	CreatedAt        time.Time                 `json:"created_at"`
+	UpdatedAt        time.Time                 `json:"updated_at"`
+	DeletedAt        pgtype.Timestamptz        `json:"deleted_at"`
+}
+
+type InventoryReservation struct {
+	ID          int64                      `json:"id"`
+	Code        string                     `json:"code"`
+	LotID       int64                      `json:"lot_id"`
+	OrderLineID pgtype.Int8                `json:"order_line_id"`
+	RequestID   string                     `json:"request_id"`
+	Quantity    int32                      `json:"quantity"`
+	Status      InventoryReservationStatus `json:"status"`
+	ExpiresAt   time.Time                  `json:"expires_at"`
+	CreatedAt   time.Time                  `json:"created_at"`
+	UpdatedAt   time.Time                  `json:"updated_at"`
+	DeletedAt   pgtype.Timestamptz         `json:"deleted_at"`
+}
+
+type InventoryStockLevel struct {
+	ID                int64              `json:"id"`
+	Code              string             `json:"code"`
+	ProductID         int64              `json:"product_id"`
+	SupplierID        int64              `json:"supplier_id"`
+	AvailableQuantity int32              `json:"available_quantity"`
+	ReservedQuantity  int32              `json:"reserved_quantity"`
+	TotalQuantity     int32              `json:"total_quantity"`
+	SafetyStock       int32              `json:"safety_stock"`
+	CreatedAt         time.Time          `json:"created_at"`
+	UpdatedAt         time.Time          `json:"updated_at"`
+	DeletedAt         pgtype.Timestamptz `json:"deleted_at"`
 }
 
 type PlatformHealthCheck struct {

@@ -13,8 +13,11 @@ import (
 	"github.com/atlas-platform/backend/internal/messaging"
 	"github.com/atlas-platform/backend/internal/modules/catalog"
 	catalog_service "github.com/atlas-platform/backend/internal/modules/catalog/service"
+	"github.com/atlas-platform/backend/internal/modules/commerce"
+	commerce_service "github.com/atlas-platform/backend/internal/modules/commerce/service"
 	"github.com/atlas-platform/backend/internal/modules/identity"
 	identity_service "github.com/atlas-platform/backend/internal/modules/identity/service"
+	"github.com/atlas-platform/backend/internal/modules/inventory"
 	"github.com/atlas-platform/backend/internal/modules/pricing"
 	pricing_service "github.com/atlas-platform/backend/internal/modules/pricing/service"
 	"github.com/atlas-platform/backend/internal/server"
@@ -64,6 +67,12 @@ func main() {
 	// Initialize pricing module services
 	pricingServices := pricing_service.NewServices(db)
 
+	// Initialize inventory module services
+	inventoryService := inventory.NewService(db, nil)
+
+	// Initialize commerce module services
+	commerceService := commerce_service.NewCommerceService(db, pricingServices.PriceList, inventoryService)
+
 	healthHandler := health.New(db, nil, version)
 	srv := server.New(cfg, healthHandler)
 
@@ -84,6 +93,22 @@ func main() {
 	pricingRouter := pricing.New(pricingServices)
 	pricingRouter.RegisterRoutes()
 	srv.Router().Mount("/api/v1", pricingRouter.ChiRouter())
+
+	// Register inventory module routes
+	inventoryRouter := inventory.New(inventoryService)
+	inventoryRouter.RegisterRoutes(
+		authMiddleware(authService),
+		adminMiddleware(nil), // TODO: Implement admin permission check (inventory.quarantine)
+	)
+	srv.Router().Mount("/api/v1", inventoryRouter.ChiRouter())
+
+	// Register commerce module routes
+	commerceRouter := commerce.New(commerceService)
+	commerceRouter.RegisterRoutes(
+		authMiddleware(authService),
+		adminMiddleware(nil),
+	)
+	srv.Router().Mount("/api/v1", commerceRouter.ChiRouter())
 
 	if err := srv.Start(ctx); err != nil {
 		slog.ErrorContext(ctx, "failed to start server", slog.String("error", err.Error()))
