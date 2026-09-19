@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand/v2"
+	"sort"
 	"strconv"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	inventory_service "github.com/atlas-platform/backend/internal/modules/inventory/service"
 	pricing_schema "github.com/atlas-platform/backend/internal/modules/pricing/schema"
 	pricing_service "github.com/atlas-platform/backend/internal/modules/pricing/service"
+	promotions_service "github.com/atlas-platform/backend/internal/modules/promotions/service"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -52,15 +54,16 @@ type CreditChecker interface {
 }
 
 type CommerceService struct {
-	db              *database.DB
-	repo            *repository.CommerceRepository
-	productRepo     *catalog_repo.ProductRepository
-	supplierRepo    *catalog_repo.SupplierRepository
-	unitRepo        *catalog_repo.UnitRepository
-	pricingSvc      *pricing_service.PriceListService
-	inventorySvc    *inventory_service.InventoryService
-	publisher       EventPublisher
-	creditChecker   CreditChecker
+	db            *database.DB
+	repo          *repository.CommerceRepository
+	productRepo   *catalog_repo.ProductRepository
+	supplierRepo  *catalog_repo.SupplierRepository
+	unitRepo      *catalog_repo.UnitRepository
+	pricingSvc    *pricing_service.PriceListService
+	inventorySvc  *inventory_service.InventoryService
+	promotionsSvc *promotions_service.PromotionService
+	publisher     EventPublisher
+	creditChecker CreditChecker
 }
 
 func NewCommerceService(
@@ -68,16 +71,18 @@ func NewCommerceService(
 	pricingSvc *pricing_service.PriceListService,
 	inventorySvc *inventory_service.InventoryService,
 	publisher EventPublisher,
+	promotionsSvc *promotions_service.PromotionService,
 ) *CommerceService {
 	return &CommerceService{
-		db:           db,
-		repo:         repository.NewCommerceRepository(db),
-		productRepo:  catalog_repo.NewProductRepository(db),
-		supplierRepo: catalog_repo.NewSupplierRepository(db),
-		unitRepo:     catalog_repo.NewUnitRepository(db),
-		pricingSvc:   pricingSvc,
-		inventorySvc: inventorySvc,
-		publisher:    publisher,
+		db:            db,
+		repo:          repository.NewCommerceRepository(db),
+		productRepo:   catalog_repo.NewProductRepository(db),
+		supplierRepo:  catalog_repo.NewSupplierRepository(db),
+		unitRepo:      catalog_repo.NewUnitRepository(db),
+		pricingSvc:    pricingSvc,
+		inventorySvc:  inventorySvc,
+		publisher:     publisher,
+		promotionsSvc: promotionsSvc,
 	}
 }
 
@@ -178,12 +183,13 @@ func (s *CommerceService) GetCart(ctx context.Context, buyerID int64) (*schema.C
 	}
 
 	return &schema.CartResponse{
-		Code:      cart.Code,
-		BuyerID:   cart.BuyerID,
-		Currency:  cart.Currency,
-		Suppliers: suppliers,
-		CreatedAt: cart.CreatedAt,
-		UpdatedAt: cart.UpdatedAt,
+		Code:        cart.Code,
+		BuyerID:     cart.BuyerID,
+		Currency:    cart.Currency,
+		VoucherCode: cart.VoucherCode,
+		Suppliers:   suppliers,
+		CreatedAt:   cart.CreatedAt,
+		UpdatedAt:   cart.UpdatedAt,
 	}, nil
 }
 
@@ -392,12 +398,29 @@ func (s *CommerceService) QuoteCart(ctx context.Context, buyerID int64) (*schema
 	for _, g := range supplierGroupsMap {
 		suppliers = append(suppliers, *g)
 	}
+	sort.Slice(suppliers, func(i, j int) bool {
+		return suppliers[i].SupplierCode < suppliers[j].SupplierCode
+	})
+
+	// Voucher discount (advisory here; checkout enforces strictly). An
+	// invalided voucher simply yields no discount on re-quote.
+	var discount int64
+	if deal, err := s.resolveVoucher(ctx, buyerID, cart); err == nil && deal != nil {
+		subtotals := make([]int64, len(suppliers))
+		for i := range suppliers {
+			subtotals[i] = suppliers[i].SubtotalMinor
+		}
+		discount = promotions_service.ComputeDiscount(deal.promo, totalSubtotal)
+		for i, share := range splitDiscount(subtotals, discount) {
+			suppliers[i].DiscountsMinor = share
+		}
+	}
 
 	return &schema.CartQuoteResponse{
 		Suppliers:      suppliers,
 		SubtotalMinor:  totalSubtotal,
-		DiscountsMinor: 0,
-		TotalMinor:     totalSubtotal,
+		DiscountsMinor: discount,
+		TotalMinor:     totalSubtotal - discount,
 		Currency:       cart.Currency,
 	}, nil
 }

@@ -15,12 +15,14 @@ import (
 	catalog_service "github.com/atlas-platform/backend/internal/modules/catalog/service"
 	"github.com/atlas-platform/backend/internal/modules/commerce"
 	commerce_service "github.com/atlas-platform/backend/internal/modules/commerce/service"
+	"github.com/atlas-platform/backend/internal/modules/crm"
 	"github.com/atlas-platform/backend/internal/modules/identity"
 	identity_service "github.com/atlas-platform/backend/internal/modules/identity/service"
 	"github.com/atlas-platform/backend/internal/modules/inventory"
 	"github.com/atlas-platform/backend/internal/modules/payments"
 	"github.com/atlas-platform/backend/internal/modules/pricing"
 	pricing_service "github.com/atlas-platform/backend/internal/modules/pricing/service"
+	"github.com/atlas-platform/backend/internal/modules/promotions"
 	"github.com/atlas-platform/backend/internal/server"
 )
 
@@ -83,8 +85,11 @@ func main() {
 	// Initialize inventory module services
 	inventoryService := inventory.NewService(db, nil)
 
+	// Initialize promotions module services (nil publisher: best-effort events)
+	promotionService := promotions.NewService(db, nil)
+
 	// Initialize commerce module services
-	commerceService := commerce_service.NewCommerceService(db, pricingServices.PriceList, inventoryService, nil)
+	commerceService := commerce_service.NewCommerceService(db, pricingServices.PriceList, inventoryService, nil, promotionService)
 
 	// Initialize payments module services (nil publisher: best-effort events)
 	paymentService := payments.NewService(db, commerceService, nil)
@@ -132,6 +137,14 @@ func main() {
 	)
 	srv.Router().Mount("/api/v1", commerceRouter.ChiRouter())
 
+	// Register promotions module routes
+	promotionsRouter := promotions.New(promotionService)
+	promotionsRouter.RegisterRoutes(
+		authMiddleware(authService),
+		adminMiddleware(nil),
+	)
+	srv.Router().Mount("/api/v1", promotionsRouter.ChiRouter())
+
 	// Register payments module routes
 	paymentsRouter := payments.New(paymentService)
 	paymentsRouter.RegisterRoutes(
@@ -141,6 +154,15 @@ func main() {
 	srv.Router().Mount("/api/v1", paymentsRouter.ChiRouter())
 	// Provider webhooks mount outside /api/v1 per contract.
 	srv.Router().Mount("/", paymentsRouter.WebhookRouter())
+
+	// Register CRM module routes
+	crmService := crm.NewService(db)
+	crmRouter := crm.New(crmService)
+	crmRouter.RegisterRoutes(
+		authMiddleware(authService),
+		adminMiddleware(nil),
+	)
+	srv.Router().Mount("/api/v1", crmRouter.ChiRouter())
 
 	if err := srv.Start(ctx); err != nil {
 		slog.ErrorContext(ctx, "failed to start server", slog.String("error", err.Error()))

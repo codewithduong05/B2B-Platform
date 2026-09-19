@@ -1,0 +1,5 @@
+DROP TABLE IF EXISTS crm.lead;
+DROP TABLE IF EXISTS crm.referral_code;
+DROP TABLE IF EXISTS crm.partner;
+
+DROP SCHEMA IF EXISTS crm;

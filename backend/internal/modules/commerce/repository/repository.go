@@ -11,12 +11,13 @@ import (
 )
 
 type Cart struct {
-	ID        int64
-	Code      string
-	BuyerID   int64
-	Currency  string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID          int64
+	Code        string
+	BuyerID     int64
+	Currency    string
+	VoucherCode *string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 type CartLine struct {
@@ -63,10 +64,10 @@ func (r *CommerceRepository) conn() querier {
 func (r *CommerceRepository) GetCartByBuyerID(ctx context.Context, buyerID int64) (Cart, error) {
 	var c Cart
 	err := r.conn().QueryRow(ctx, `
-		SELECT id, code, buyer_id, currency, created_at, updated_at
+		SELECT id, code, buyer_id, currency, voucher_code, created_at, updated_at
 		FROM commerce.cart
 		WHERE buyer_id = $1 AND deleted_at IS NULL
-	`, buyerID).Scan(&c.ID, &c.Code, &c.BuyerID, &c.Currency, &c.CreatedAt, &c.UpdatedAt)
+	`, buyerID).Scan(&c.ID, &c.Code, &c.BuyerID, &c.Currency, &c.VoucherCode, &c.CreatedAt, &c.UpdatedAt)
 	return c, err
 }
 
@@ -76,9 +77,32 @@ func (r *CommerceRepository) CreateCart(ctx context.Context, code string, buyerI
 		INSERT INTO commerce.cart (code, buyer_id, currency)
 		VALUES ($1, $2, $3)
 		ON CONFLICT (buyer_id) DO UPDATE SET updated_at = NOW()
-		RETURNING id, code, buyer_id, currency, created_at, updated_at
-	`, code, buyerID, currency).Scan(&c.ID, &c.Code, &c.BuyerID, &c.Currency, &c.CreatedAt, &c.UpdatedAt)
+		RETURNING id, code, buyer_id, currency, voucher_code, created_at, updated_at
+	`, code, buyerID, currency).Scan(&c.ID, &c.Code, &c.BuyerID, &c.Currency, &c.VoucherCode, &c.CreatedAt, &c.UpdatedAt)
 	return c, err
+}
+
+// SetCartVoucher applies (or replaces) the cart-level voucher code. Last
+// write wins: exactly one voucher per cart (no stacking).
+func (r *CommerceRepository) SetCartVoucher(ctx context.Context, cartID int64, code string) (Cart, error) {
+	var c Cart
+	err := r.conn().QueryRow(ctx, `
+		UPDATE commerce.cart
+		SET voucher_code = $2, updated_at = NOW()
+		WHERE id = $1 AND deleted_at IS NULL
+		RETURNING id, code, buyer_id, currency, voucher_code, created_at, updated_at
+	`, cartID, code).Scan(&c.ID, &c.Code, &c.BuyerID, &c.Currency, &c.VoucherCode, &c.CreatedAt, &c.UpdatedAt)
+	return c, err
+}
+
+// ClearCartVoucher removes the applied voucher (post-checkout consumption).
+func (r *CommerceRepository) ClearCartVoucher(ctx context.Context, cartID int64) error {
+	_, err := r.conn().Exec(ctx, `
+		UPDATE commerce.cart
+		SET voucher_code = NULL, updated_at = NOW()
+		WHERE id = $1 AND deleted_at IS NULL
+	`, cartID)
+	return err
 }
 
 func (r *CommerceRepository) GetCartLines(ctx context.Context, cartID int64) ([]CartLine, error) {
@@ -155,11 +179,11 @@ func (r *CommerceRepository) DeleteCartLine(ctx context.Context, id int64) error
 func (r *CommerceRepository) LockCartByBuyerID(ctx context.Context, buyerID int64) (Cart, error) {
 	var c Cart
 	err := r.conn().QueryRow(ctx, `
-		SELECT id, code, buyer_id, currency, created_at, updated_at
+		SELECT id, code, buyer_id, currency, voucher_code, created_at, updated_at
 		FROM commerce.cart
 		WHERE buyer_id = $1 AND deleted_at IS NULL
 		FOR UPDATE
-	`, buyerID).Scan(&c.ID, &c.Code, &c.BuyerID, &c.Currency, &c.CreatedAt, &c.UpdatedAt)
+	`, buyerID).Scan(&c.ID, &c.Code, &c.BuyerID, &c.Currency, &c.VoucherCode, &c.CreatedAt, &c.UpdatedAt)
 	return c, err
 }
 
@@ -265,15 +289,15 @@ type IdempotencyClaim struct {
 	UpdatedAt   time.Time
 }
 
-func (r *CommerceRepository) CreateOrder(ctx context.Context, code string, buyerID, supplierID int64, cartID int64, cartCode, currency string, subtotalMinor, totalMinor int64) (Order, error) {
+func (r *CommerceRepository) CreateOrder(ctx context.Context, code string, buyerID, supplierID int64, cartID int64, cartCode, currency string, subtotalMinor, discountsMinor, totalMinor int64) (Order, error) {
 	var o Order
 	var cartIDPtr *int64
 	var cartCodePtr *string
 	err := r.conn().QueryRow(ctx, `
-		INSERT INTO commerce."order" (code, buyer_id, supplier_id, cart_id, cart_code, currency, subtotal_minor, total_minor, status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'placed')
+		INSERT INTO commerce."order" (code, buyer_id, supplier_id, cart_id, cart_code, currency, subtotal_minor, discounts_minor, total_minor, status)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'placed')
 		RETURNING id, code, buyer_id, supplier_id, cart_id, cart_code, currency, subtotal_minor, discounts_minor, total_minor, status, placed_at, created_at, updated_at
-	`, code, buyerID, supplierID, cartID, cartCode, currency, subtotalMinor, totalMinor).Scan(
+	`, code, buyerID, supplierID, cartID, cartCode, currency, subtotalMinor, discountsMinor, totalMinor).Scan(
 		&o.ID, &o.Code, &o.BuyerID, &o.SupplierID, &cartIDPtr, &cartCodePtr,
 		&o.Currency, &o.SubtotalMinor, &o.DiscountsMinor, &o.TotalMinor,
 		&o.Status, &o.PlacedAt, &o.CreatedAt, &o.UpdatedAt)

@@ -7,6 +7,7 @@ import (
 
 	"github.com/atlas-platform/backend/internal/modules/commerce/schema"
 	"github.com/atlas-platform/backend/internal/modules/commerce/service"
+	promotions_service "github.com/atlas-platform/backend/internal/modules/promotions/service"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
@@ -51,6 +52,7 @@ func (rt *Router) RegisterRoutes(authMiddleware, adminMiddleware func(http.Handl
 		r.Patch("/cart/items/{code}", rt.handleUpdateCartItem)
 		r.Delete("/cart/items/{code}", rt.handleDeleteCartItem)
 		r.Post("/cart/quote", rt.handleQuoteCart)
+		r.Post("/cart/voucher", rt.handleApplyVoucher)
 		r.Post("/checkout", rt.handleCheckout)
 		r.Get("/orders/me", rt.handleListOrders)
 		r.Get("/orders/me/{code}", rt.handleGetOrder)
@@ -226,6 +228,50 @@ func (rt *Router) handleQuoteCart(w http.ResponseWriter, r *http.Request) {
 	rt.writeJSON(w, http.StatusOK, quote)
 }
 
+func (rt *Router) handleApplyVoucher(w http.ResponseWriter, r *http.Request) {
+	buyerID := PrincipalIDFromContext(r.Context())
+	if buyerID == 0 {
+		buyerID = 1
+	}
+
+	var req schema.ApplyVoucherRequest
+	if err := rt.decodeBody(r, &req); err != nil {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_body", "invalid request body")
+		return
+	}
+	if req.Code == "" {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "voucher code is required")
+		return
+	}
+
+	cart, err := rt.service.ApplyVoucher(r.Context(), buyerID, req.Code)
+	if err != nil {
+		rt.writeVoucherError(w, r, err)
+		return
+	}
+
+	rt.writeJSON(w, http.StatusOK, cart)
+}
+
+// writeVoucherError maps promotion validation failures to stable codes.
+// Unknown codes are 404; every other rejection explains itself with 422.
+func (rt *Router) writeVoucherError(w http.ResponseWriter, r *http.Request, err error) {
+	switch err {
+	case promotions_service.ErrVoucherUnknown:
+		rt.writeError(w, r, http.StatusNotFound, "voucher_not_found", "unknown voucher code")
+	case promotions_service.ErrVoucherState:
+		rt.writeError(w, r, http.StatusUnprocessableEntity, "voucher_invalid", "voucher is not redeemable")
+	case promotions_service.ErrVoucherExpired:
+		rt.writeError(w, r, http.StatusUnprocessableEntity, "voucher_expired", "voucher is outside its validity window")
+	case promotions_service.ErrVoucherExhausted:
+		rt.writeError(w, r, http.StatusUnprocessableEntity, "voucher_exhausted", "voucher budget exhausted")
+	case promotions_service.ErrVoucherRedeemed:
+		rt.writeError(w, r, http.StatusUnprocessableEntity, "voucher_redeemed", "voucher already redeemed by this buyer")
+	default:
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+	}
+}
+
 func (rt *Router) handleCheckout(w http.ResponseWriter, r *http.Request) {
 	buyerID := PrincipalIDFromContext(r.Context())
 	if buyerID == 0 {
@@ -271,6 +317,13 @@ func (rt *Router) handleCheckout(w http.ResponseWriter, r *http.Request) {
 			rt.writeError(w, r, http.StatusUnprocessableEntity, "credit_hold", "buyer credit account is on hold")
 		case service.ErrCreditLimitExceeded:
 			rt.writeError(w, r, http.StatusUnprocessableEntity, "credit_limit_exceeded", "order exceeds available credit")
+		case promotions_service.ErrVoucherUnknown:
+			rt.writeError(w, r, http.StatusNotFound, "voucher_not_found", "applied voucher is unknown")
+		case promotions_service.ErrVoucherState,
+			promotions_service.ErrVoucherExpired,
+			promotions_service.ErrVoucherExhausted,
+			promotions_service.ErrVoucherRedeemed:
+			rt.writeError(w, r, http.StatusUnprocessableEntity, "voucher_invalid", "applied voucher is no longer redeemable")
 		default:
 			rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
 		}

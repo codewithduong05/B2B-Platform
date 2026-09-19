@@ -20,6 +20,7 @@ import (
 	commerce_service "github.com/atlas-platform/backend/internal/modules/commerce/service"
 	inventory_service "github.com/atlas-platform/backend/internal/modules/inventory/service"
 	pricing_service "github.com/atlas-platform/backend/internal/modules/pricing/service"
+	promotions_service "github.com/atlas-platform/backend/internal/modules/promotions/service"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -34,7 +35,7 @@ func TestMain(m *testing.M) {
 		rawDB, err := sql.Open("pgx", cfg.PostgresDSN())
 		if err == nil && rawDB != nil {
 			_, _ = rawDB.Exec("SELECT pg_advisory_lock($1)", int64(commerceTestDBLockKey))
-			_, _ = rawDB.Exec("DROP SCHEMA IF EXISTS catalog CASCADE; DROP SCHEMA IF EXISTS inventory CASCADE; DROP SCHEMA IF EXISTS identity CASCADE; DROP SCHEMA IF EXISTS pricing CASCADE; DROP SCHEMA IF EXISTS commerce CASCADE; DROP SCHEMA IF EXISTS payments CASCADE; DROP TABLE IF EXISTS schema_migrations CASCADE; DROP TYPE IF EXISTS catalog_handling_class_type CASCADE;")
+			_, _ = rawDB.Exec("DROP SCHEMA IF EXISTS catalog CASCADE; DROP SCHEMA IF EXISTS inventory CASCADE; DROP SCHEMA IF EXISTS identity CASCADE; DROP SCHEMA IF EXISTS pricing CASCADE; DROP SCHEMA IF EXISTS commerce CASCADE; DROP SCHEMA IF EXISTS promotions CASCADE; DROP SCHEMA IF EXISTS crm CASCADE; DROP SCHEMA IF EXISTS payments CASCADE; DROP TABLE IF EXISTS schema_migrations CASCADE; DROP TYPE IF EXISTS catalog_handling_class_type CASCADE;")
 
 			if err := database.RunMigrations(ctx, &cfg.Postgres, "file://../../../../migrations"); err != nil {
 				fmt.Printf("TestMain migration error: %v\n", err)
@@ -81,7 +82,8 @@ func setupEnv(t *testing.T, buyerID int64, auth, admin func(http.Handler) http.H
 
 	pricingSvc := pricing_service.NewServices(db)
 	inventorySvc := inventory_service.NewInventoryService(db, nil)
-	commerceSvc := commerce_service.NewCommerceService(db, pricingSvc.PriceList, inventorySvc, nil)
+	promotionSvc := promotions_service.NewPromotionService(db, nil)
+	commerceSvc := commerce_service.NewCommerceService(db, pricingSvc.PriceList, inventorySvc, nil, promotionSvc)
 	rt := router.New(commerceSvc)
 	rt.RegisterRoutes(auth, admin)
 

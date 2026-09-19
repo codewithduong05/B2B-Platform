@@ -17,6 +17,7 @@ import (
 	commerce_service "github.com/atlas-platform/backend/internal/modules/commerce/service"
 	inventory_service "github.com/atlas-platform/backend/internal/modules/inventory/service"
 	pricing_service "github.com/atlas-platform/backend/internal/modules/pricing/service"
+	promotions_service "github.com/atlas-platform/backend/internal/modules/promotions/service"
 )
 
 func addStock(t *testing.T, env *testEnv, productID, supplierID int64, qty int32, quarantined bool) {
@@ -648,7 +649,8 @@ func TestCheckout_EventPublished(t *testing.T) {
 	svc := commerce_service.NewCommerceService(env.db,
 		pricing_service.NewServices(env.db).PriceList,
 		inventory_service.NewInventoryService(env.db, nil),
-		pub)
+		pub,
+		promotions_service.NewPromotionService(env.db, nil))
 	ctx := context.Background()
 
 	// Seed the cart through the service (same path as the router).

@@ -342,7 +342,7 @@ func TestAudit_UpdateAfterDeleteMapsToNotFound(t *testing.T) {
 		t.Fatalf("out-of-band delete: %v", err)
 	}
 
-	svc := commerce_service.NewCommerceService(envAuth.db, nil, nil, nil)
+	svc := commerce_service.NewCommerceService(envAuth.db, nil, nil, nil, nil)
 	_, err := svc.UpdateCartItem(ctx, buyerID, lineCode, schema.UpdateCartItemRequest{Quantity: 5})
 	if err == nil {
 		t.Fatalf("expected error updating a deleted line, got nil")

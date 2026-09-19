@@ -5,12 +5,13 @@ import (
 )
 
 type CartResponse struct {
-	Code      string              `json:"code"`
-	BuyerID   int64               `json:"buyer_id"`
-	Currency  string              `json:"currency"`
-	Suppliers []SupplierCartGroup `json:"suppliers"`
-	CreatedAt time.Time           `json:"created_at"`
-	UpdatedAt time.Time           `json:"updated_at"`
+	Code        string              `json:"code"`
+	BuyerID     int64               `json:"buyer_id"`
+	Currency    string              `json:"currency"`
+	VoucherCode *string             `json:"voucher_code,omitempty"`
+	Suppliers   []SupplierCartGroup `json:"suppliers"`
+	CreatedAt   time.Time           `json:"created_at"`
+	UpdatedAt   time.Time           `json:"updated_at"`
 }
 
 type SupplierCartGroup struct {
@@ -38,6 +39,10 @@ type AddCartItemRequest struct {
 	Quantity    int    `json:"quantity"`
 }
 
+type ApplyVoucherRequest struct {
+	Code string `json:"code"`
+}
+
 type UpdateCartItemRequest struct {
 	Quantity int `json:"quantity"`
 }
@@ -51,11 +56,12 @@ type CartQuoteResponse struct {
 }
 
 type SupplierQuoteGroup struct {
-	SupplierCode  string          `json:"supplier_code"`
-	SupplierName  string          `json:"supplier_name"`
-	Items         []CartLineQuote `json:"items"`
-	SubtotalMinor int64           `json:"subtotal_minor"`
-	Currency      string          `json:"currency"`
+	SupplierCode   string          `json:"supplier_code"`
+	SupplierName   string          `json:"supplier_name"`
+	Items          []CartLineQuote `json:"items"`
+	SubtotalMinor  int64           `json:"subtotal_minor"`
+	DiscountsMinor int64           `json:"discounts_minor,omitempty"`
+	Currency       string          `json:"currency"`
 }
 
 type CartLineQuote struct {
@@ -85,16 +91,16 @@ type CheckoutResponse struct {
 }
 
 type OrderResponse struct {
-	Code           string             `json:"code"`
-	SupplierCode   string             `json:"supplier_code"`
-	SupplierName   string             `json:"supplier_name"`
-	Status         string             `json:"status"`
-	Currency       string             `json:"currency"`
-	SubtotalMinor  int64              `json:"subtotal_minor"`
-	DiscountsMinor int64              `json:"discounts_minor"`
-	TotalMinor     int64              `json:"total_minor"`
+	Code           string              `json:"code"`
+	SupplierCode   string              `json:"supplier_code"`
+	SupplierName   string              `json:"supplier_name"`
+	Status         string              `json:"status"`
+	Currency       string              `json:"currency"`
+	SubtotalMinor  int64               `json:"subtotal_minor"`
+	DiscountsMinor int64               `json:"discounts_minor"`
+	TotalMinor     int64               `json:"total_minor"`
 	Lines          []OrderLineResponse `json:"lines"`
-	PlacedAt       time.Time          `json:"placed_at"`
+	PlacedAt       time.Time           `json:"placed_at"`
 }
 
 type OrderLineResponse struct {
@@ -127,13 +133,13 @@ type AdminOrderDetailResponse struct {
 }
 
 type ShipmentResponse struct {
-	Code         string                `json:"code"`
-	Status       string                `json:"status"`
-	Carrier      string                `json:"carrier,omitempty"`
-	TrackingCode string                `json:"tracking_code,omitempty"`
+	Code         string                 `json:"code"`
+	Status       string                 `json:"status"`
+	Carrier      string                 `json:"carrier,omitempty"`
+	TrackingCode string                 `json:"tracking_code,omitempty"`
 	Lines        []ShipmentLineResponse `json:"lines"`
-	CreatedAt    time.Time             `json:"created_at"`
-	UpdatedAt    time.Time             `json:"updated_at"`
+	CreatedAt    time.Time              `json:"created_at"`
+	UpdatedAt    time.Time              `json:"updated_at"`
 }
 
 type ShipmentLineResponse struct {

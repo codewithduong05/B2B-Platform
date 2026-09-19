@@ -35,6 +35,9 @@ import (
 	inventory_schema "github.com/atlas-platform/backend/internal/modules/inventory/schema"
 	inventory_service "github.com/atlas-platform/backend/internal/modules/inventory/service"
 	pricing_schema "github.com/atlas-platform/backend/internal/modules/pricing/schema"
+	promotions_events "github.com/atlas-platform/backend/internal/modules/promotions/events"
+	promotions_repo "github.com/atlas-platform/backend/internal/modules/promotions/repository"
+	promotions_service "github.com/atlas-platform/backend/internal/modules/promotions/service"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -75,8 +78,9 @@ func newOrderLineCode() string {
 }
 
 // canonicalPayloadHash identifies the checkout intent: buyer + exact cart
-// content. Same key + same hash replays; same key + different hash is 409.
-func canonicalPayloadHash(buyerID int64, lines []repository.CartLine) string {
+// content + applied voucher. Same key + same hash replays; same key with a
+// different hash is 409.
+func canonicalPayloadHash(buyerID int64, lines []repository.CartLine, voucherCode string) string {
 	type item struct {
 		p, s, u int64
 		q       int
@@ -99,6 +103,7 @@ func canonicalPayloadHash(buyerID int64, lines []repository.CartLine) string {
 	for _, it := range items {
 		fmt.Fprintf(h, "%d:%d:%d:%d;", it.p, it.s, it.u, it.q)
 	}
+	fmt.Fprintf(h, "voucher:%s;", voucherCode)
 	return hex.EncodeToString(h.Sum(nil))
 }
 
@@ -132,7 +137,11 @@ func (s *CommerceService) Checkout(ctx context.Context, buyerID int64, idemKey s
 	if err != nil {
 		return nil, fmt.Errorf("get cart lines: %w", err)
 	}
-	payloadHash := canonicalPayloadHash(buyerID, lines)
+	voucherCode := ""
+	if cart.VoucherCode != nil {
+		voucherCode = *cart.VoucherCode
+	}
+	payloadHash := canonicalPayloadHash(buyerID, lines, voucherCode)
 
 	claim, created, err := s.repo.ClaimIdempotency(ctx, buyerID, idemKey, payloadHash)
 	if err != nil {
@@ -196,14 +205,30 @@ func (s *CommerceService) Checkout(ctx context.Context, buyerID int64, idemKey s
 		return fail(nil, err)
 	}
 
-	// Credit gate (optional; wired by the payments module). Rejects before
-	// any reservation so a blocked buyer holds no stock.
-	if s.creditChecker != nil {
-		var estimate int64
-		for _, v := range valid {
-			estimate += v.lineTotal
+	// Voucher resolution (strict): an applied code that no longer validates
+	// fails the checkout with its reason rather than silently dropping the
+	// discount the buyer saw at quote time.
+	var deal *voucherDeal
+	var cartSubtotal int64
+	for _, v := range valid {
+		cartSubtotal += v.lineTotal
+	}
+	var cartDiscount int64
+	if voucherCode != "" {
+		deal, err = s.resolveVoucher(ctx, buyerID, cart)
+		if err != nil {
+			return fail(nil, err)
 		}
-		if err := s.creditChecker.CheckCredit(ctx, buyerID, estimate); err != nil {
+		if deal != nil {
+			cartDiscount = promotions_service.ComputeDiscount(deal.promo, cartSubtotal)
+		}
+	}
+
+	// Credit gate (optional; wired by the payments module). Rejects before
+	// any reservation so a blocked buyer holds no stock. Checked against
+	// the net (post-discount) total.
+	if s.creditChecker != nil {
+		if err := s.creditChecker.CheckCredit(ctx, buyerID, cartSubtotal-cartDiscount); err != nil {
 			return fail(nil, err)
 		}
 	}
@@ -237,12 +262,13 @@ func (s *CommerceService) Checkout(ctx context.Context, buyerID int64, idemKey s
 		reservationIDs = append(reservationIDs, valid[i].resRequestID)
 	}
 
-	resp, err := s.createOrderSet(ctx, buyerID, &claim, valid, payloadHash)
+	resp, err := s.createOrderSet(ctx, buyerID, &claim, valid, payloadHash, deal, cartDiscount)
 	if err != nil {
 		return fail(reservationIDs, err)
 	}
 
 	s.publishOrderPlaced(ctx, buyerID, idemKey, resp)
+	s.publishVoucherRedeemed(ctx, buyerID, idemKey, deal, resp)
 	return &CheckoutResult{Response: resp, Replayed: false}, nil
 }
 
@@ -340,10 +366,11 @@ func (s *CommerceService) precheckAvailability(ctx context.Context, valid []chec
 // payload hash (the cart must not have changed under this key), create one
 // order per supplier with price snapshots, record history, clear the cart,
 // and mark the idempotency claim completed with the stored result.
-func (s *CommerceService) createOrderSet(ctx context.Context, buyerID int64, claim *repository.IdempotencyClaim, valid []checkoutLine, payloadHash string) (*schema.CheckoutResponse, error) {
+func (s *CommerceService) createOrderSet(ctx context.Context, buyerID int64, claim *repository.IdempotencyClaim, valid []checkoutLine, payloadHash string, deal *voucherDeal, cartDiscount int64) (*schema.CheckoutResponse, error) {
 	var resp *schema.CheckoutResponse
 	err := s.db.WithTx(ctx, func(tx *database.Tx) error {
 		txRepo := repository.NewCommerceRepositoryWithTx(tx)
+		promoRepo := promotions_repo.NewPromotionRepositoryWithTx(tx)
 
 		locked, err := txRepo.LockCartByBuyerID(ctx, buyerID)
 		if err != nil {
@@ -359,7 +386,11 @@ func (s *CommerceService) createOrderSet(ctx context.Context, buyerID int64, cla
 		if len(lockedLines) == 0 {
 			return ErrCheckoutConflict
 		}
-		if canonicalPayloadHash(buyerID, lockedLines) != payloadHash {
+		lockedVoucher := ""
+		if locked.VoucherCode != nil {
+			lockedVoucher = *locked.VoucherCode
+		}
+		if canonicalPayloadHash(buyerID, lockedLines, lockedVoucher) != payloadHash {
 			return ErrIdempotencyConflict
 		}
 		var lockedLineIDs []int64
@@ -376,15 +407,35 @@ func (s *CommerceService) createOrderSet(ctx context.Context, buyerID int64, cla
 			groups[v.supplierID] = append(groups[v.supplierID], v)
 		}
 
+		// Pro-rata discount shares in supplier order (deterministic: shares
+		// sum exactly to the cart discount).
+		subtotals := make([]int64, len(supplierOrder))
+		for i, supplierID := range supplierOrder {
+			for _, it := range groups[supplierID] {
+				subtotals[i] += it.lineTotal
+			}
+		}
+		shares := splitDiscount(subtotals, cartDiscount)
+
+		// Redeem the voucher budget exactly once per checkout, before any
+		// order row depends on it. Atomic guard: exhausted budgets or
+		// unpublished promotions fail here and abort the whole order set
+		// (released + retried by fail()).
+		if deal != nil {
+			if _, err := promoRepo.ConsumeBudget(ctx, deal.promo.ID, time.Now()); err != nil {
+				return mapRedeemError(err)
+			}
+		}
+
 		resp = &schema.CheckoutResponse{Currency: locked.Currency}
-		for _, supplierID := range supplierOrder {
+		for i, supplierID := range supplierOrder {
 			items := groups[supplierID]
 			var subtotal int64
 			for _, it := range items {
 				subtotal += it.lineTotal
 			}
 			order, err := txRepo.CreateOrder(ctx, newOrderCode(), buyerID, supplierID,
-				locked.ID, locked.Code, locked.Currency, subtotal, subtotal)
+				locked.ID, locked.Code, locked.Currency, subtotal, shares[i], subtotal-shares[i])
 			if err != nil {
 				return fmt.Errorf("create order: %w", err)
 			}
@@ -393,14 +444,15 @@ func (s *CommerceService) createOrderSet(ctx context.Context, buyerID int64, cla
 				return fmt.Errorf("link idempotency key: %w", err)
 			}
 			orderResp := schema.OrderResponse{
-				Code:          order.Code,
-				SupplierCode:  items[0].supplierCode,
-				SupplierName:  items[0].supplierName,
-				Status:        order.Status,
-				Currency:      order.Currency,
-				SubtotalMinor: order.SubtotalMinor,
-				TotalMinor:    order.TotalMinor,
-				PlacedAt:      order.PlacedAt,
+				Code:           order.Code,
+				SupplierCode:   items[0].supplierCode,
+				SupplierName:   items[0].supplierName,
+				Status:         order.Status,
+				Currency:       order.Currency,
+				SubtotalMinor:  order.SubtotalMinor,
+				DiscountsMinor: order.DiscountsMinor,
+				TotalMinor:     order.TotalMinor,
+				PlacedAt:       order.PlacedAt,
 			}
 			for _, it := range items {
 				ol, err := txRepo.CreateOrderLine(ctx, newOrderLineCode(), order.ID,
@@ -425,11 +477,22 @@ func (s *CommerceService) createOrderSet(ctx context.Context, buyerID int64, cla
 			if _, err := txRepo.CreateOrderHistory(ctx, order.ID, nil, order.Status, &actor, "checkout"); err != nil {
 				return fmt.Errorf("record order history: %w", err)
 			}
+			// One redemption row per split order for this checkout's share.
+			if deal != nil && shares[i] > 0 {
+				if _, err := promoRepo.CreateRedemption(ctx, deal.promo.ID, buyerID, order.ID, shares[i], locked.Currency); err != nil {
+					return mapRedeemError(err)
+				}
+			}
 			resp.Orders = append(resp.Orders, orderResp)
 		}
 
 		if err := txRepo.ClearCartLinesByIDs(ctx, lockedLineIDs); err != nil {
 			return fmt.Errorf("clear cart lines: %w", err)
+		}
+		if deal != nil {
+			if err := txRepo.ClearCartVoucher(ctx, locked.ID); err != nil {
+				return fmt.Errorf("clear cart voucher: %w", err)
+			}
 		}
 
 		raw, err := json.Marshal(resp)
@@ -447,6 +510,19 @@ func (s *CommerceService) createOrderSet(ctx context.Context, buyerID int64, cla
 	return resp, nil
 }
 
+// mapRedeemError translates redemption storage failures into the
+// promotions domain errors (shared with the voucher endpoints): exhausted
+// budgets (no rows matched the guarded increment) and duplicate rows.
+func mapRedeemError(err error) error {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return promotions_service.ErrVoucherExhausted
+	}
+	if database.IsUniqueViolation(err) {
+		return promotions_service.ErrVoucherRedeemed
+	}
+	return fmt.Errorf("redeem voucher: %w", err)
+}
+
 func (s *CommerceService) publishOrderPlaced(ctx context.Context, buyerID int64, idemKey string, resp *schema.CheckoutResponse) {
 	if s.publisher == nil {
 		return
@@ -461,6 +537,30 @@ func (s *CommerceService) publishOrderPlaced(ctx context.Context, buyerID int64,
 				TotalMinor:     o.TotalMinor,
 				Currency:       o.Currency,
 				IdempotencyKey: idemKey,
+			},
+			idemKey,
+		))
+	}
+}
+
+// publishVoucherRedeemed emits one event per discounted order, after commit,
+// on first execution only (replays never reach here).
+func (s *CommerceService) publishVoucherRedeemed(ctx context.Context, buyerID int64, idemKey string, deal *voucherDeal, resp *schema.CheckoutResponse) {
+	if s.publisher == nil || deal == nil {
+		return
+	}
+	for _, o := range resp.Orders {
+		if o.DiscountsMinor <= 0 {
+			continue
+		}
+		_ = s.publisher.Publish(ctx, promotions_events.EventVoucherRedeemed, promotions_events.NewEnvelope(
+			promotions_events.EventVoucherRedeemed,
+			promotions_events.VoucherRedeemedPayload{
+				PromotionCode: deal.code,
+				BuyerID:       buyerID,
+				OrderCode:     o.Code,
+				AmountMinor:   o.DiscountsMinor,
+				Currency:      o.Currency,
 			},
 			idemKey,
 		))
