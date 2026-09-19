@@ -108,3 +108,18 @@ INSERT INTO inventory.quarantine_record (
 ) VALUES (
     $1, $2, $3, $4, $5, $6
 ) RETURNING *;
+
+-- name: GetStockLevelByIDForUpdate :one
+SELECT * FROM inventory.stock_level
+WHERE id = $1 AND deleted_at IS NULL
+FOR UPDATE;
+
+-- name: GetLotByIDForUpdate :one
+SELECT * FROM inventory.lot
+WHERE id = $1 AND deleted_at IS NULL
+FOR UPDATE;
+
+-- name: GetReservationsByRequestIDForUpdate :many
+SELECT * FROM inventory.reservation
+WHERE request_id = $1 AND deleted_at IS NULL
+FOR UPDATE;

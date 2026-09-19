@@ -176,8 +176,15 @@ func (s *InventoryService) ReserveStock(ctx context.Context, req schema.ReserveS
 			reservations = append(reservations, toReservationSummary(res))
 		}
 
-		newStockAvail := sl.AvailableQuantity - req.Quantity
-		newStockRes := sl.ReservedQuantity + req.Quantity
+		// Re-read the stock level under a row lock: the snapshot above
+		// predates the FEFO lot locks, so concurrent reserves would
+		// otherwise lost-update these counters (overstated availability).
+		lockedSL, err := txRepo.GetStockLevelByIDForUpdate(ctx, sl.ID)
+		if err != nil {
+			return fmt.Errorf("lock stock level: %w", err)
+		}
+		newStockAvail := lockedSL.AvailableQuantity - req.Quantity
+		newStockRes := lockedSL.ReservedQuantity + req.Quantity
 		_, err = txRepo.UpdateStockLevelQuantities(ctx, sl.ID, newStockAvail, newStockRes, sl.TotalQuantity)
 		if err != nil {
 			return fmt.Errorf("update stock level: %w", err)
@@ -480,4 +487,61 @@ func toLotSummary(l inventory.InventoryLot) schema.LotSummary {
 		CreatedAt:         l.CreatedAt,
 		UpdatedAt:         l.UpdatedAt,
 	}
+}
+
+// ReleaseReservationAttempt rolls back reservations created under the given
+// request IDs (e.g. a failed checkout attempt that reserved some lines
+// before hitting insufficient stock). Only rows still in 'reserved' status
+// are released and restored to their lot and stock level; any other status
+// is skipped, making the call idempotent. It must only be used for
+// same-attempt rollback, never against fulfilled orders.
+func (s *InventoryService) ReleaseReservationAttempt(ctx context.Context, requestIDs []string) error {
+	if len(requestIDs) == 0 {
+		return nil
+	}
+	return s.db.WithTx(ctx, func(tx *database.Tx) error {
+		txRepo := repo.NewInventoryRepositoryWithTx(tx)
+		for _, requestID := range requestIDs {
+			if requestID == "" {
+				continue
+			}
+			// Row-locked reads: concurrent releases/reserves of the same
+			// rows must serialize, otherwise restores lost-update the
+			// counters (and can drive them negative).
+			rows, err := txRepo.GetReservationsByRequestIDForUpdate(ctx, requestID)
+			if err != nil {
+				return fmt.Errorf("get reservations for release: %w", err)
+			}
+			for _, res := range rows {
+				if res.Status != inventory.InventoryReservationStatusReserved {
+					continue
+				}
+				lot, err := txRepo.GetLotByIDForUpdate(ctx, res.LotID)
+				if err != nil {
+					return fmt.Errorf("get lot for release: %w", err)
+				}
+				if _, err := txRepo.UpdateLotQuantities(ctx, lot.ID,
+					lot.AvailableQuantity+res.Quantity,
+					lot.ReservedQuantity-res.Quantity,
+					lot.Status); err != nil {
+					return fmt.Errorf("restore lot quantities: %w", err)
+				}
+				sl, err := txRepo.GetStockLevelByIDForUpdate(ctx, lot.StockLevelID)
+				if err != nil {
+					return fmt.Errorf("get stock level for release: %w", err)
+				}
+				if _, err := txRepo.UpdateStockLevelQuantities(ctx, sl.ID,
+					sl.AvailableQuantity+res.Quantity,
+					sl.ReservedQuantity-res.Quantity,
+					sl.TotalQuantity); err != nil {
+					return fmt.Errorf("restore stock level quantities: %w", err)
+				}
+				if _, err := txRepo.UpdateReservationStatus(ctx, res.ID,
+					inventory.InventoryReservationStatusReleased); err != nil {
+					return fmt.Errorf("release reservation: %w", err)
+				}
+			}
+		}
+		return nil
+	})
 }

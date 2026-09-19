@@ -81,7 +81,7 @@ func setupEnv(t *testing.T, buyerID int64, auth, admin func(http.Handler) http.H
 
 	pricingSvc := pricing_service.NewServices(db)
 	inventorySvc := inventory_service.NewInventoryService(db, nil)
-	commerceSvc := commerce_service.NewCommerceService(db, pricingSvc.PriceList, inventorySvc)
+	commerceSvc := commerce_service.NewCommerceService(db, pricingSvc.PriceList, inventorySvc, nil)
 	rt := router.New(commerceSvc)
 	rt.RegisterRoutes(auth, admin)
 

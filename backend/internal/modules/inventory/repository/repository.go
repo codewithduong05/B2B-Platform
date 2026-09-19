@@ -33,6 +33,10 @@ func (r *InventoryRepository) GetStockLevelByID(ctx context.Context, id int64) (
 	return r.q.GetStockLevelByID(ctx, id)
 }
 
+func (r *InventoryRepository) GetStockLevelByIDForUpdate(ctx context.Context, id int64) (inventory.InventoryStockLevel, error) {
+	return r.q.GetStockLevelByIDForUpdate(ctx, id)
+}
+
 func (r *InventoryRepository) GetStockLevelByProductAndSupplier(ctx context.Context, productID, supplierID int64) (inventory.InventoryStockLevel, error) {
 	return r.q.GetStockLevelByProductAndSupplier(ctx, inventory.GetStockLevelByProductAndSupplierParams{
 		ProductID:  productID,
@@ -61,6 +65,10 @@ func (r *InventoryRepository) GetLotByID(ctx context.Context, id int64) (invento
 	return r.q.GetLotByID(ctx, id)
 }
 
+func (r *InventoryRepository) GetLotByIDForUpdate(ctx context.Context, id int64) (inventory.InventoryLot, error) {
+	return r.q.GetLotByIDForUpdate(ctx, id)
+}
+
 func (r *InventoryRepository) GetFEFOLotsForUpdate(ctx context.Context, stockLevelID int64) ([]inventory.InventoryLot, error) {
 	return r.q.GetFEFOLotsForUpdate(ctx, stockLevelID)
 }
@@ -84,6 +92,10 @@ func (r *InventoryRepository) GetReservationByID(ctx context.Context, id int64) 
 
 func (r *InventoryRepository) GetReservationsByRequestID(ctx context.Context, requestID string) ([]inventory.InventoryReservation, error) {
 	return r.q.GetReservationsByRequestID(ctx, requestID)
+}
+
+func (r *InventoryRepository) GetReservationsByRequestIDForUpdate(ctx context.Context, requestID string) ([]inventory.InventoryReservation, error) {
+	return r.q.GetReservationsByRequestIDForUpdate(ctx, requestID)
 }
 
 func (r *InventoryRepository) FindExpiredReservations(ctx context.Context) ([]inventory.InventoryReservation, error) {

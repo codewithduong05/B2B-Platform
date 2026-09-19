@@ -51,6 +51,9 @@ func (rt *Router) RegisterRoutes(authMiddleware, adminMiddleware func(http.Handl
 		r.Patch("/cart/items/{code}", rt.handleUpdateCartItem)
 		r.Delete("/cart/items/{code}", rt.handleDeleteCartItem)
 		r.Post("/cart/quote", rt.handleQuoteCart)
+		r.Post("/checkout", rt.handleCheckout)
+		r.Get("/orders/me", rt.handleListOrders)
+		r.Get("/orders/me/{code}", rt.handleGetOrder)
 	})
 }
 
@@ -184,6 +187,101 @@ func (rt *Router) handleQuoteCart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rt.writeJSON(w, http.StatusOK, quote)
+}
+
+func (rt *Router) handleCheckout(w http.ResponseWriter, r *http.Request) {
+	buyerID := PrincipalIDFromContext(r.Context())
+	if buyerID == 0 {
+		buyerID = 1
+	}
+
+	idemKey := r.Header.Get("Idempotency-Key")
+	if idemKey == "" {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "Idempotency-Key header is required")
+		return
+	}
+
+	// The checkout body carries no business fields; an empty body is the
+	// normal case. A present-but-malformed body is still a 400.
+	if r.ContentLength != 0 {
+		var req schema.CheckoutRequest
+		if err := rt.decodeBody(r, &req); err != nil {
+			rt.writeError(w, r, http.StatusBadRequest, "invalid_body", "invalid request body")
+			return
+		}
+	}
+
+	result, err := rt.service.Checkout(r.Context(), buyerID, idemKey)
+	if err != nil {
+		switch err {
+		case service.ErrInvalidIdemKey:
+			rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "invalid idempotency key")
+		case service.ErrEmptyCart:
+			rt.writeError(w, r, http.StatusUnprocessableEntity, "empty_cart", "cart is empty")
+		case service.ErrProductNotFound:
+			rt.writeError(w, r, http.StatusNotFound, "product_not_found", "product not found or unavailable")
+		case service.ErrCartNotFound:
+			rt.writeError(w, r, http.StatusNotFound, "cart_not_found", "cart not found")
+		case service.ErrInsufficientStock:
+			rt.writeError(w, r, http.StatusUnprocessableEntity, "insufficient_stock", "insufficient stock for the requested quantity")
+		case service.ErrIdempotencyConflict:
+			rt.writeError(w, r, http.StatusConflict, "idempotency_conflict", "idempotency key reused for a different checkout")
+		case service.ErrCheckoutInFlight:
+			rt.writeError(w, r, http.StatusConflict, "checkout_in_flight", "checkout already in progress for this key")
+		case service.ErrCheckoutConflict:
+			rt.writeError(w, r, http.StatusConflict, "checkout_conflict", "cart was consumed by another checkout")
+		default:
+			rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		}
+		return
+	}
+
+	if result.Replayed {
+		rt.writeJSON(w, http.StatusOK, result.Response)
+		return
+	}
+	w.Header().Set("Location", "/api/v1/commerce/orders/me")
+	rt.writeJSON(w, http.StatusCreated, result.Response)
+}
+
+func (rt *Router) handleListOrders(w http.ResponseWriter, r *http.Request) {
+	buyerID := PrincipalIDFromContext(r.Context())
+	if buyerID == 0 {
+		buyerID = 1
+	}
+
+	orders, err := rt.service.ListOrders(r.Context(), buyerID)
+	if err != nil {
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+
+	rt.writeJSON(w, http.StatusOK, orders)
+}
+
+func (rt *Router) handleGetOrder(w http.ResponseWriter, r *http.Request) {
+	buyerID := PrincipalIDFromContext(r.Context())
+	if buyerID == 0 {
+		buyerID = 1
+	}
+
+	code := chi.URLParam(r, "code")
+	if code == "" {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "order code is required")
+		return
+	}
+
+	order, err := rt.service.GetOrder(r.Context(), buyerID, code)
+	if err != nil {
+		if err == service.ErrOrderNotFound {
+			rt.writeError(w, r, http.StatusNotFound, "order_not_found", "order not found")
+			return
+		}
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+
+	rt.writeJSON(w, http.StatusOK, order)
 }
 
 func (rt *Router) decodeBody(r *http.Request, dest interface{}) error {

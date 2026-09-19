@@ -21,11 +21,25 @@ import (
 )
 
 var (
-	ErrCartNotFound     = errors.New("cart not found")
-	ErrCartLineNotFound = errors.New("cart line not found")
-	ErrProductNotFound  = errors.New("product not found")
-	ErrInvalidQuantity  = errors.New("invalid quantity")
+	ErrCartNotFound        = errors.New("cart not found")
+	ErrCartLineNotFound    = errors.New("cart line not found")
+	ErrProductNotFound     = errors.New("product not found")
+	ErrInvalidQuantity     = errors.New("invalid quantity")
+	ErrEmptyCart           = errors.New("cart is empty")
+	ErrInsufficientStock   = errors.New("insufficient stock")
+	ErrIdempotencyConflict = errors.New("idempotency key reused for a different intent")
+	ErrCheckoutInFlight    = errors.New("checkout already in progress for this key")
+	ErrCheckoutConflict    = errors.New("cart was consumed by another checkout")
+	ErrInvalidIdemKey      = errors.New("invalid idempotency key")
+	ErrOrderNotFound       = errors.New("order not found")
 )
+
+// EventPublisher mirrors the inventory module's publisher shape: routing key
+// plus payload. The production wiring passes nil (same as inventory), in
+// which case checkout publishes nothing.
+type EventPublisher interface {
+	Publish(ctx context.Context, routingKey string, payload interface{}) error
+}
 
 type CommerceService struct {
 	db           *database.DB
@@ -35,12 +49,14 @@ type CommerceService struct {
 	unitRepo     *catalog_repo.UnitRepository
 	pricingSvc   *pricing_service.PriceListService
 	inventorySvc *inventory_service.InventoryService
+	publisher    EventPublisher
 }
 
 func NewCommerceService(
 	db *database.DB,
 	pricingSvc *pricing_service.PriceListService,
 	inventorySvc *inventory_service.InventoryService,
+	publisher EventPublisher,
 ) *CommerceService {
 	return &CommerceService{
 		db:           db,
@@ -50,6 +66,7 @@ func NewCommerceService(
 		unitRepo:     catalog_repo.NewUnitRepository(db),
 		pricingSvc:   pricingSvc,
 		inventorySvc: inventorySvc,
+		publisher:    publisher,
 	}
 }
 

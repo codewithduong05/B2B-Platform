@@ -338,6 +338,34 @@ func (q *Queries) GetLotByID(ctx context.Context, id int64) (InventoryLot, error
 	return i, err
 }
 
+const getLotByIDForUpdate = `-- name: GetLotByIDForUpdate :one
+SELECT id, code, stock_level_id, lot_number, initial_quantity, available_quantity, reserved_quantity, status, is_quarantined, production_date, expires_at, created_at, updated_at, deleted_at FROM inventory.lot
+WHERE id = $1 AND deleted_at IS NULL
+FOR UPDATE
+`
+
+func (q *Queries) GetLotByIDForUpdate(ctx context.Context, id int64) (InventoryLot, error) {
+	row := q.db.QueryRow(ctx, getLotByIDForUpdate, id)
+	var i InventoryLot
+	err := row.Scan(
+		&i.ID,
+		&i.Code,
+		&i.StockLevelID,
+		&i.LotNumber,
+		&i.InitialQuantity,
+		&i.AvailableQuantity,
+		&i.ReservedQuantity,
+		&i.Status,
+		&i.IsQuarantined,
+		&i.ProductionDate,
+		&i.ExpiresAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
 const getReservationByCode = `-- name: GetReservationByCode :one
 SELECT id, code, lot_id, order_line_id, request_id, quantity, status, expires_at, created_at, updated_at, deleted_at FROM inventory.reservation
 WHERE code = $1 AND deleted_at IS NULL
@@ -423,6 +451,44 @@ func (q *Queries) GetReservationsByRequestID(ctx context.Context, requestID stri
 	return items, nil
 }
 
+const getReservationsByRequestIDForUpdate = `-- name: GetReservationsByRequestIDForUpdate :many
+SELECT id, code, lot_id, order_line_id, request_id, quantity, status, expires_at, created_at, updated_at, deleted_at FROM inventory.reservation
+WHERE request_id = $1 AND deleted_at IS NULL
+FOR UPDATE
+`
+
+func (q *Queries) GetReservationsByRequestIDForUpdate(ctx context.Context, requestID string) ([]InventoryReservation, error) {
+	rows, err := q.db.Query(ctx, getReservationsByRequestIDForUpdate, requestID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []InventoryReservation{}
+	for rows.Next() {
+		var i InventoryReservation
+		if err := rows.Scan(
+			&i.ID,
+			&i.Code,
+			&i.LotID,
+			&i.OrderLineID,
+			&i.RequestID,
+			&i.Quantity,
+			&i.Status,
+			&i.ExpiresAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getStockLevelByID = `-- name: GetStockLevelByID :one
 SELECT id, code, product_id, supplier_id, available_quantity, reserved_quantity, total_quantity, safety_stock, created_at, updated_at, deleted_at FROM inventory.stock_level
 WHERE id = $1 AND deleted_at IS NULL
@@ -430,6 +496,31 @@ WHERE id = $1 AND deleted_at IS NULL
 
 func (q *Queries) GetStockLevelByID(ctx context.Context, id int64) (InventoryStockLevel, error) {
 	row := q.db.QueryRow(ctx, getStockLevelByID, id)
+	var i InventoryStockLevel
+	err := row.Scan(
+		&i.ID,
+		&i.Code,
+		&i.ProductID,
+		&i.SupplierID,
+		&i.AvailableQuantity,
+		&i.ReservedQuantity,
+		&i.TotalQuantity,
+		&i.SafetyStock,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
+const getStockLevelByIDForUpdate = `-- name: GetStockLevelByIDForUpdate :one
+SELECT id, code, product_id, supplier_id, available_quantity, reserved_quantity, total_quantity, safety_stock, created_at, updated_at, deleted_at FROM inventory.stock_level
+WHERE id = $1 AND deleted_at IS NULL
+FOR UPDATE
+`
+
+func (q *Queries) GetStockLevelByIDForUpdate(ctx context.Context, id int64) (InventoryStockLevel, error) {
+	row := q.db.QueryRow(ctx, getStockLevelByIDForUpdate, id)
 	var i InventoryStockLevel
 	err := row.Scan(
 		&i.ID,

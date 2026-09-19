@@ -141,6 +141,47 @@ func (ns NullCatalogUnitType) Value() (driver.Value, error) {
 	return string(ns.CatalogUnitType), nil
 }
 
+type CommerceOrderStatus string
+
+const (
+	CommerceOrderStatusPlaced CommerceOrderStatus = "placed"
+)
+
+func (e *CommerceOrderStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = CommerceOrderStatus(s)
+	case string:
+		*e = CommerceOrderStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for CommerceOrderStatus: %T", src)
+	}
+	return nil
+}
+
+type NullCommerceOrderStatus struct {
+	CommerceOrderStatus CommerceOrderStatus `json:"commerce_order_status"`
+	Valid               bool                `json:"valid"` // Valid is true if CommerceOrderStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullCommerceOrderStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.CommerceOrderStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.CommerceOrderStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullCommerceOrderStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.CommerceOrderStatus), nil
+}
+
 type IdentityUserType string
 
 const (
@@ -663,6 +704,87 @@ type CatalogUnit struct {
 	CreatedAt        time.Time          `json:"created_at"`
 	UpdatedAt        time.Time          `json:"updated_at"`
 	DeletedAt        pgtype.Timestamptz `json:"deleted_at"`
+}
+
+type CommerceCart struct {
+	ID        int64              `json:"id"`
+	Code      string             `json:"code"`
+	BuyerID   int64              `json:"buyer_id"`
+	Currency  string             `json:"currency"`
+	CreatedAt time.Time          `json:"created_at"`
+	UpdatedAt time.Time          `json:"updated_at"`
+	DeletedAt pgtype.Timestamptz `json:"deleted_at"`
+}
+
+type CommerceCartLine struct {
+	ID         int64              `json:"id"`
+	Code       string             `json:"code"`
+	CartID     int64              `json:"cart_id"`
+	ProductID  int64              `json:"product_id"`
+	SupplierID int64              `json:"supplier_id"`
+	UnitID     int64              `json:"unit_id"`
+	Quantity   int32              `json:"quantity"`
+	CreatedAt  time.Time          `json:"created_at"`
+	UpdatedAt  time.Time          `json:"updated_at"`
+	DeletedAt  pgtype.Timestamptz `json:"deleted_at"`
+}
+
+type CommerceCheckoutIdempotency struct {
+	ID          int64     `json:"id"`
+	BuyerID     int64     `json:"buyer_id"`
+	IdemKey     string    `json:"idem_key"`
+	PayloadHash string    `json:"payload_hash"`
+	Status      string    `json:"status"`
+	Result      []byte    `json:"result"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+type CommerceOrder struct {
+	ID             int64               `json:"id"`
+	Code           string              `json:"code"`
+	BuyerID        int64               `json:"buyer_id"`
+	SupplierID     int64               `json:"supplier_id"`
+	CartID         pgtype.Int8         `json:"cart_id"`
+	CartCode       pgtype.Text         `json:"cart_code"`
+	Currency       string              `json:"currency"`
+	SubtotalMinor  int64               `json:"subtotal_minor"`
+	DiscountsMinor int64               `json:"discounts_minor"`
+	TotalMinor     int64               `json:"total_minor"`
+	Status         CommerceOrderStatus `json:"status"`
+	PlacedAt       time.Time           `json:"placed_at"`
+	CreatedAt      time.Time           `json:"created_at"`
+	UpdatedAt      time.Time           `json:"updated_at"`
+	DeletedAt      pgtype.Timestamptz  `json:"deleted_at"`
+}
+
+type CommerceOrderHistory struct {
+	ID         int64                   `json:"id"`
+	OrderID    int64                   `json:"order_id"`
+	FromStatus NullCommerceOrderStatus `json:"from_status"`
+	ToStatus   CommerceOrderStatus     `json:"to_status"`
+	Actor      pgtype.Int8             `json:"actor"`
+	Reason     pgtype.Text             `json:"reason"`
+	CreatedAt  time.Time               `json:"created_at"`
+}
+
+type CommerceOrderLine struct {
+	ID              int64              `json:"id"`
+	Code            string             `json:"code"`
+	OrderID         int64              `json:"order_id"`
+	ProductID       int64              `json:"product_id"`
+	SupplierID      int64              `json:"supplier_id"`
+	UnitID          int64              `json:"unit_id"`
+	Quantity        int32              `json:"quantity"`
+	UnitPriceMinor  int64              `json:"unit_price_minor"`
+	TotalPriceMinor int64              `json:"total_price_minor"`
+	Currency        string             `json:"currency"`
+	ProductCode     string             `json:"product_code"`
+	ProductName     string             `json:"product_name"`
+	UnitCode        string             `json:"unit_code"`
+	CreatedAt       time.Time          `json:"created_at"`
+	UpdatedAt       time.Time          `json:"updated_at"`
+	DeletedAt       pgtype.Timestamptz `json:"deleted_at"`
 }
 
 type IdentityAddress struct {

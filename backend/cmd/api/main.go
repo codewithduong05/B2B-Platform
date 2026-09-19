@@ -71,7 +71,7 @@ func main() {
 	inventoryService := inventory.NewService(db, nil)
 
 	// Initialize commerce module services
-	commerceService := commerce_service.NewCommerceService(db, pricingServices.PriceList, inventoryService)
+	commerceService := commerce_service.NewCommerceService(db, pricingServices.PriceList, inventoryService, nil)
 
 	healthHandler := health.New(db, nil, version)
 	srv := server.New(cfg, healthHandler)
