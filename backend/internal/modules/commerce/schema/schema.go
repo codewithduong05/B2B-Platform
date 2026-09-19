@@ -120,3 +120,59 @@ type OrderDetailResponse struct {
 	OrderResponse
 	History []OrderHistoryResponse `json:"history"`
 }
+
+type AdminOrderDetailResponse struct {
+	OrderDetailResponse
+	Shipments []ShipmentResponse `json:"shipments"`
+}
+
+type ShipmentResponse struct {
+	Code         string                `json:"code"`
+	Status       string                `json:"status"`
+	Carrier      string                `json:"carrier,omitempty"`
+	TrackingCode string                `json:"tracking_code,omitempty"`
+	Lines        []ShipmentLineResponse `json:"lines"`
+	CreatedAt    time.Time             `json:"created_at"`
+	UpdatedAt    time.Time             `json:"updated_at"`
+}
+
+type ShipmentLineResponse struct {
+	OrderLineID int64  `json:"order_line_id"`
+	ProductCode string `json:"product_code,omitempty"`
+	ProductName string `json:"product_name,omitempty"`
+	Quantity    int    `json:"quantity"`
+}
+
+type ShipmentLineInput struct {
+	OrderLineID int64 `json:"order_line_id"`
+	Quantity    int   `json:"quantity"`
+}
+
+type CreateShipmentRequest struct {
+	OrderID      int64               `json:"order_id"`
+	Lines        []ShipmentLineInput `json:"lines"`
+	Carrier      *string             `json:"carrier,omitempty"`
+	TrackingCode *string             `json:"tracking_code,omitempty"`
+}
+
+type UpdateShipmentRequest struct {
+	Carrier      *string `json:"carrier,omitempty"`
+	TrackingCode *string `json:"tracking_code,omitempty"`
+	Status       string  `json:"status,omitempty"`
+}
+
+type InvoiceResponse struct {
+	Code          string     `json:"code"`
+	Status        string     `json:"status"`
+	SubtotalMinor int64      `json:"subtotal_minor"`
+	TotalMinor    int64      `json:"total_minor"`
+	BalanceMinor  int64      `json:"balance_minor"`
+	Currency      string     `json:"currency"`
+	IssuedAt      *time.Time `json:"issued_at,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+}
+
+type CreateInvoiceRequest struct {
+	OrderID int64 `json:"order_id"`
+}

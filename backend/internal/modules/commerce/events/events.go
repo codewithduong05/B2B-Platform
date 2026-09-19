@@ -14,8 +14,11 @@ import (
 )
 
 const (
-	EventOrderPlaced = "commerce.order.placed"
-	EventVersionV1    = 1
+	EventOrderPlaced     = "commerce.order.placed"
+	EventOrderCancelled  = "commerce.order.cancelled"
+	EventOrderDispatched = "commerce.order.dispatched"
+	EventShipmentUpdated = "commerce.shipment.updated"
+	EventVersionV1       = 1
 )
 
 type Envelope struct {

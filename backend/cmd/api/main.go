@@ -18,6 +18,7 @@ import (
 	"github.com/atlas-platform/backend/internal/modules/identity"
 	identity_service "github.com/atlas-platform/backend/internal/modules/identity/service"
 	"github.com/atlas-platform/backend/internal/modules/inventory"
+	"github.com/atlas-platform/backend/internal/modules/payments"
 	"github.com/atlas-platform/backend/internal/modules/pricing"
 	pricing_service "github.com/atlas-platform/backend/internal/modules/pricing/service"
 	"github.com/atlas-platform/backend/internal/server"
@@ -73,6 +74,9 @@ func main() {
 	// Initialize commerce module services
 	commerceService := commerce_service.NewCommerceService(db, pricingServices.PriceList, inventoryService, nil)
 
+	// Initialize payments module services (nil publisher: best-effort events)
+	paymentService := payments.NewService(db, commerceService, nil)
+
 	healthHandler := health.New(db, nil, version)
 	srv := server.New(cfg, healthHandler)
 
@@ -109,6 +113,14 @@ func main() {
 		adminMiddleware(nil),
 	)
 	srv.Router().Mount("/api/v1", commerceRouter.ChiRouter())
+
+	// Register payments module routes
+	paymentsRouter := payments.New(paymentService)
+	paymentsRouter.RegisterRoutes(
+		authMiddleware(authService),
+		adminMiddleware(nil),
+	)
+	srv.Router().Mount("/api/v1", paymentsRouter.ChiRouter())
 
 	if err := srv.Start(ctx); err != nil {
 		slog.ErrorContext(ctx, "failed to start server", slog.String("error", err.Error()))

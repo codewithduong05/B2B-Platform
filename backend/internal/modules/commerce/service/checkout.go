@@ -376,6 +376,10 @@ func (s *CommerceService) createOrderSet(ctx context.Context, buyerID int64, cla
 			if err != nil {
 				return fmt.Errorf("create order: %w", err)
 			}
+			// Link the checkout key for later cancel-time reservation release.
+			if err := txRepo.SetOrderIdemKey(ctx, order.ID, claim.Key); err != nil {
+				return fmt.Errorf("link idempotency key: %w", err)
+			}
 			orderResp := schema.OrderResponse{
 				Code:          order.Code,
 				SupplierCode:  items[0].supplierCode,

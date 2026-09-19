@@ -55,6 +55,31 @@ func (rt *Router) RegisterRoutes(authMiddleware, adminMiddleware func(http.Handl
 		r.Get("/orders/me", rt.handleListOrders)
 		r.Get("/orders/me/{code}", rt.handleGetOrder)
 	})
+
+	// Staff surface (05: /admin/* with integer IDs). Authenticated first, then
+	// authorized by the injected admin middleware.
+	rt.router.Route("/admin", func(r chi.Router) {
+		if authMiddleware != nil {
+			r.Use(authMiddleware)
+		}
+		if adminMiddleware != nil {
+			r.Use(adminMiddleware)
+		}
+
+		r.Get("/orders", rt.handleAdminListOrders)
+		r.Get("/orders/{id}", rt.handleAdminGetOrder)
+		r.Post("/orders/{id}/notes", rt.handleAdminAddNote)
+		r.Post("/orders/{id}/hold", rt.handleAdminHold)
+		r.Post("/orders/{id}/release", rt.handleAdminReleaseHold)
+		r.Post("/orders/{id}/transition", rt.handleAdminTransition)
+		r.Post("/orders/{id}/shipments", rt.handleAdminCreateShipment)
+		r.Get("/shipments", rt.handleAdminListShipments)
+		r.Patch("/shipments/{id}", rt.handleAdminUpdateShipment)
+		r.Get("/invoices", rt.handleAdminListInvoices)
+		r.Post("/invoices", rt.handleAdminCreateInvoice)
+		r.Post("/invoices/{id}/issue", rt.handleAdminIssueInvoice)
+		r.Post("/invoices/{id}/void", rt.handleAdminVoidInvoice)
+	})
 }
 
 func (rt *Router) handleGetCart(w http.ResponseWriter, r *http.Request) {

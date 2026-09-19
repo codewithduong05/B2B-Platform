@@ -218,6 +218,9 @@ type Order struct {
 	DiscountsMinor int64
 	TotalMinor     int64
 	Status         string
+	OnHold         bool
+	HoldReason     *string
+	IdemKey        *string
 	PlacedAt       time.Time
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
