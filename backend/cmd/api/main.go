@@ -14,6 +14,8 @@ import (
 	"github.com/atlas-platform/backend/internal/modules/catalog"
 	catalog_repo "github.com/atlas-platform/backend/internal/modules/catalog/repository"
 	catalog_service "github.com/atlas-platform/backend/internal/modules/catalog/service"
+	"github.com/atlas-platform/backend/internal/modules/cms"
+	"github.com/atlas-platform/backend/internal/modules/reports"
 	"github.com/atlas-platform/backend/internal/modules/commerce"
 	commerce_repo "github.com/atlas-platform/backend/internal/modules/commerce/repository"
 	commerce_service "github.com/atlas-platform/backend/internal/modules/commerce/service"
@@ -166,6 +168,24 @@ func main() {
 		adminMiddleware(nil),
 	)
 	srv.Router().Mount("/api/v1", crmRouter.ChiRouter())
+
+	// Register Reports module routes
+	reportsService := reports.NewService(db)
+	reportsRouter := reports.New(reportsService)
+	reportsRouter.RegisterRoutes(
+		authMiddleware(authService),
+		adminMiddleware(nil),
+	)
+	srv.Router().Mount("/api/v1", reportsRouter.ChiRouter())
+
+	// Register CMS module routes
+	cmsService := cms.NewService(db)
+	cmsRouter := cms.New(cmsService)
+	cmsRouter.RegisterRoutes(
+		authMiddleware(authService),
+		adminMiddleware(nil),
+	)
+	srv.Router().Mount("/api/v1", cmsRouter.ChiRouter())
 
 	// Register suppliers module routes
 	supplierService := suppliers.NewService(db)

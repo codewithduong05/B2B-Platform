@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS reports.export_job;
+DROP SCHEMA IF EXISTS reports CASCADE;
