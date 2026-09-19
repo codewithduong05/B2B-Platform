@@ -22,6 +22,7 @@ var (
 	ErrOrderOnHold           = errors.New("order is on hold")
 	ErrIncompleteFulfillment = errors.New("order lines are not fully shipped")
 	ErrOverpayment           = errors.New("payment exceeds outstanding balance")
+	ErrOrderConflict         = errors.New("order state changed underneath")
 )
 
 const (
@@ -148,6 +149,12 @@ func (s *CommerceService) AdminGetOrder(ctx context.Context, id int64) (*schema.
 // TransitionOrder moves one order to a new status, enforcing the state
 // machine and hold flag, recording history, and publishing the catalogued
 // event for the transition (if any). actor is the staff principal ID.
+//
+// Concurrency: pre-checks outside the transaction preserve the 422 contract
+// for sequential misuse; the order row is then locked inside the transaction
+// and every precondition is re-validated. A mismatch means a concurrent
+// writer won the race and surfaces as ErrOrderConflict (409), never a
+// duplicated transition.
 func (s *CommerceService) TransitionOrder(ctx context.Context, orderID int64, actor int64, toStatus, reason string) (*repository.Order, error) {
 	order, err := s.orderByID(ctx, orderID)
 	if err != nil {
@@ -159,25 +166,37 @@ func (s *CommerceService) TransitionOrder(ctx context.Context, orderID int64, ac
 	if !isValidTransition(order.Status, toStatus) {
 		return nil, ErrInvalidTransition
 	}
-	if toStatus == OrderStatusShipped {
-		covered, err := s.fulfillmentCovered(ctx, order.ID)
-		if err != nil {
-			return nil, err
-		}
-		if !covered {
-			return nil, ErrIncompleteFulfillment
-		}
-	}
 
+	// Coverage for shipped is checked inside the transaction (locked);
+	// see below.
 	var updated repository.Order
 	err = s.db.WithTx(ctx, func(tx *database.Tx) error {
 		txRepo := repository.NewCommerceRepositoryWithTx(tx)
+		locked, err := txRepo.GetOrderByIDForUpdate(ctx, order.ID)
+		if err != nil {
+			return fmt.Errorf("lock order: %w", err)
+		}
+		if locked.OnHold {
+			return ErrOrderOnHold
+		}
+		if locked.Status != order.Status || !isValidTransition(locked.Status, toStatus) {
+			return ErrOrderConflict
+		}
+		if toStatus == OrderStatusShipped {
+			covered, err := fulfillmentCoveredTx(ctx, txRepo, order.ID)
+			if err != nil {
+				return err
+			}
+			if !covered {
+				return ErrIncompleteFulfillment
+			}
+		}
 		u, err := txRepo.UpdateOrderStatus(ctx, order.ID, toStatus)
 		if err != nil {
 			return fmt.Errorf("update order status: %w", err)
 		}
 		updated = u
-		from := order.Status
+		from := locked.Status
 		if _, err := txRepo.CreateOrderHistory(ctx, order.ID, &from, toStatus, &actor, reason); err != nil {
 			return fmt.Errorf("record order history: %w", err)
 		}
@@ -192,9 +211,16 @@ func (s *CommerceService) TransitionOrder(ctx context.Context, orderID int64, ac
 }
 
 // CancelOrder cancels a pre-fulfillment order and releases its checkout
-// reservations. Release runs before the status transaction: on release
-// failure the order is untouched (safe direction). Orders created before
-// idem_key tracking have nothing to release.
+// reservations. Cancellation is rejected while active (non-cancelled)
+// shipments exist: stock already handed to fulfillment must not be freed.
+//
+// Locking: the order row is locked, validated, and (after release) updated
+// in a single transaction. The inventory release runs while the order lock
+// is held — a deliberate, bounded same-database exception to "no I/O inside
+// a transaction": without it, a concurrent ship could commit between release
+// and status update, freeing stock for a shipped order. Lock ordering is
+// global (order row → inventory lots/levels) and unopposed by any other
+// path, so no deadlock cycle exists.
 func (s *CommerceService) CancelOrder(ctx context.Context, orderID int64, actor int64, reason string) (*repository.Order, error) {
 	order, err := s.orderByID(ctx, orderID)
 	if err != nil {
@@ -206,22 +232,84 @@ func (s *CommerceService) CancelOrder(ctx context.Context, orderID int64, actor 
 	if !isValidTransition(order.Status, OrderStatusCancelled) {
 		return nil, ErrInvalidTransition
 	}
-
-	if order.IdemKey != nil && *order.IdemKey != "" {
-		lines, err := s.repo.GetOrderLines(ctx, order.ID)
-		if err != nil {
-			return nil, fmt.Errorf("get order lines: %w", err)
-		}
-		var requestIDs []string
-		for _, l := range lines {
-			requestIDs = append(requestIDs, reservationRequestID(*order.IdemKey, order.BuyerID, l.ProductID, l.SupplierID))
-		}
-		if err := s.inventorySvc.ReleaseReservationAttempt(ctx, requestIDs); err != nil {
-			return nil, fmt.Errorf("release reservations: %w", err)
-		}
+	if active, err := s.hasActiveShipments(ctx, order.ID); err != nil {
+		return nil, err
+	} else if active {
+		return nil, ErrOrderConflict
 	}
 
-	return s.TransitionOrder(ctx, orderID, actor, OrderStatusCancelled, reason)
+	var updated repository.Order
+	err = s.db.WithTx(ctx, func(tx *database.Tx) error {
+		txRepo := repository.NewCommerceRepositoryWithTx(tx)
+		locked, err := txRepo.GetOrderByIDForUpdate(ctx, order.ID)
+		if err != nil {
+			return fmt.Errorf("lock order: %w", err)
+		}
+		if locked.OnHold {
+			return ErrOrderOnHold
+		}
+		if locked.Status != order.Status || !isValidTransition(locked.Status, OrderStatusCancelled) {
+			return ErrOrderConflict
+		}
+		if active, err := hasActiveShipmentsTx(ctx, txRepo, order.ID); err != nil {
+			return err
+		} else if active {
+			return ErrOrderConflict
+		}
+
+		if locked.IdemKey != nil && *locked.IdemKey != "" {
+			lines, err := txRepo.GetOrderLines(ctx, order.ID)
+			if err != nil {
+				return fmt.Errorf("get order lines: %w", err)
+			}
+			var requestIDs []string
+			for _, l := range lines {
+				requestIDs = append(requestIDs, reservationRequestID(*locked.IdemKey, locked.BuyerID, l.ProductID, l.SupplierID))
+			}
+			if err := s.inventorySvc.ReleaseReservationAttempt(ctx, requestIDs); err != nil {
+				return fmt.Errorf("release reservations: %w", err)
+			}
+		}
+
+		u, err := txRepo.UpdateOrderStatus(ctx, order.ID, OrderStatusCancelled)
+		if err != nil {
+			return fmt.Errorf("update order status: %w", err)
+		}
+		updated = u
+		from := locked.Status
+		if _, err := txRepo.CreateOrderHistory(ctx, order.ID, &from, OrderStatusCancelled, &actor, reason); err != nil {
+			return fmt.Errorf("record order history: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	s.publishLifecycleEvent(ctx, order.BuyerID, &updated)
+	return &updated, nil
+}
+
+// hasActiveShipments reports whether non-cancelled shipments exist.
+func (s *CommerceService) hasActiveShipments(ctx context.Context, orderID int64) (bool, error) {
+	return hasActiveShipmentsTx(ctx, s.repo, orderID)
+}
+
+type shipmentLister interface {
+	GetShipmentsByOrder(ctx context.Context, orderID int64) ([]repository.Shipment, error)
+}
+
+func hasActiveShipmentsTx(ctx context.Context, repo shipmentLister, orderID int64) (bool, error) {
+	shipments, err := repo.GetShipmentsByOrder(ctx, orderID)
+	if err != nil {
+		return false, fmt.Errorf("get shipments: %w", err)
+	}
+	for _, sh := range shipments {
+		if sh.Status != ShipmentStatusCancelled {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // HoldOrder freezes an order: all status transitions are rejected until
@@ -244,12 +332,23 @@ func (s *CommerceService) HoldOrder(ctx context.Context, orderID int64, actor in
 	var updated repository.Order
 	err = s.db.WithTx(ctx, func(tx *database.Tx) error {
 		txRepo := repository.NewCommerceRepositoryWithTx(tx)
+		locked, err := txRepo.GetOrderByIDForUpdate(ctx, order.ID)
+		if err != nil {
+			return fmt.Errorf("lock order: %w", err)
+		}
+		if locked.Status == OrderStatusDelivered || locked.Status == OrderStatusCancelled {
+			return ErrInvalidTransition
+		}
+		if locked.OnHold {
+			updated = locked
+			return nil
+		}
 		u, err := txRepo.SetOrderHold(ctx, order.ID, true, &reason)
 		if err != nil {
 			return fmt.Errorf("hold order: %w", err)
 		}
 		updated = u
-		if _, err := txRepo.CreateOrderHistory(ctx, order.ID, &order.Status, order.Status, &actor, "hold: "+reason); err != nil {
+		if _, err := txRepo.CreateOrderHistory(ctx, order.ID, &locked.Status, locked.Status, &actor, "hold: "+reason); err != nil {
 			return fmt.Errorf("record order history: %w", err)
 		}
 		return nil
@@ -273,12 +372,20 @@ func (s *CommerceService) ReleaseHoldOrder(ctx context.Context, orderID int64, a
 	var updated repository.Order
 	err = s.db.WithTx(ctx, func(tx *database.Tx) error {
 		txRepo := repository.NewCommerceRepositoryWithTx(tx)
+		locked, err := txRepo.GetOrderByIDForUpdate(ctx, order.ID)
+		if err != nil {
+			return fmt.Errorf("lock order: %w", err)
+		}
+		if !locked.OnHold {
+			updated = locked
+			return nil
+		}
 		u, err := txRepo.SetOrderHold(ctx, order.ID, false, nil)
 		if err != nil {
 			return fmt.Errorf("release hold: %w", err)
 		}
 		updated = u
-		if _, err := txRepo.CreateOrderHistory(ctx, order.ID, &order.Status, order.Status, &actor, "hold released: "+reason); err != nil {
+		if _, err := txRepo.CreateOrderHistory(ctx, order.ID, &locked.Status, locked.Status, &actor, "hold released: "+reason); err != nil {
 			return fmt.Errorf("record order history: %w", err)
 		}
 		return nil
@@ -307,14 +414,20 @@ func (s *CommerceService) AddOrderNote(ctx context.Context, orderID int64, actor
 // fulfillmentCovered reports whether every order line is fully covered by
 // non-cancelled shipments.
 func (s *CommerceService) fulfillmentCovered(ctx context.Context, orderID int64) (bool, error) {
-	lines, err := s.repo.GetOrderLines(ctx, orderID)
+	return fulfillmentCoveredTx(ctx, s.repo, orderID)
+}
+
+// fulfillmentCoveredTx is the transaction-scoped variant used inside locked
+// order transactions so coverage reads serialize with shipment creation.
+func fulfillmentCoveredTx(ctx context.Context, txRepo *repository.CommerceRepository, orderID int64) (bool, error) {
+	lines, err := txRepo.GetOrderLines(ctx, orderID)
 	if err != nil {
 		return false, fmt.Errorf("get order lines: %w", err)
 	}
 	if len(lines) == 0 {
 		return false, nil
 	}
-	shipped, err := s.repo.ShippedQuantities(ctx, orderID)
+	shipped, err := txRepo.ShippedQuantities(ctx, orderID)
 	if err != nil {
 		return false, fmt.Errorf("get shipped quantities: %w", err)
 	}
@@ -336,7 +449,9 @@ func (s *CommerceService) RecordPayment(ctx context.Context, orderID, amountMino
 	var remaining int64
 	err := s.db.WithTx(ctx, func(tx *database.Tx) error {
 		txRepo := repository.NewCommerceRepositoryWithTx(tx)
-		invoices, err := txRepo.ListInvoices(ctx, orderID, 0, 0)
+		// Locked invoice reads: concurrent allocations serialize instead
+		// of double-applying against the same outstanding balance.
+		invoices, err := txRepo.ListInvoicesForUpdate(ctx, orderID)
 		if err != nil {
 			return fmt.Errorf("list invoices: %w", err)
 		}

@@ -189,6 +189,8 @@ func (rt *Router) writeAdminOrderError(w http.ResponseWriter, r *http.Request, e
 		rt.writeError(w, r, http.StatusUnprocessableEntity, "invalid_transition", "invalid order status transition")
 	case service.ErrOrderOnHold:
 		rt.writeError(w, r, http.StatusConflict, "order_on_hold", "order is on hold")
+	case service.ErrOrderConflict:
+		rt.writeError(w, r, http.StatusConflict, "order_conflict", "order state changed underneath")
 	case service.ErrIncompleteFulfillment:
 		rt.writeError(w, r, http.StatusUnprocessableEntity, "incomplete_fulfillment", "order lines are not fully shipped")
 	default:
@@ -222,6 +224,8 @@ func (rt *Router) handleAdminCreateShipment(w http.ResponseWriter, r *http.Reque
 			rt.writeError(w, r, http.StatusUnprocessableEntity, "invalid_transition", "order cannot be shipped in its current state")
 		case service.ErrCartLineNotFound:
 			rt.writeError(w, r, http.StatusNotFound, "order_line_not_found", "order line not found")
+		case service.ErrOrderConflict:
+			rt.writeError(w, r, http.StatusConflict, "order_conflict", "order state changed underneath")
 		default:
 			rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
 		}
@@ -263,6 +267,8 @@ func (rt *Router) handleAdminUpdateShipment(w http.ResponseWriter, r *http.Reque
 			rt.writeError(w, r, http.StatusNotFound, "shipment_not_found", "shipment not found")
 		case service.ErrInvalidTransition:
 			rt.writeError(w, r, http.StatusUnprocessableEntity, "invalid_transition", "invalid shipment status transition")
+		case service.ErrOrderConflict:
+			rt.writeError(w, r, http.StatusConflict, "order_conflict", "shipment state changed underneath")
 		default:
 			rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
 		}

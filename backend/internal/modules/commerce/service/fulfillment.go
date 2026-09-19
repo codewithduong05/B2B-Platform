@@ -160,6 +160,40 @@ func (s *CommerceService) CreateShipment(ctx context.Context, actor int64, order
 	var createdLines []repository.ShipmentLine
 	err = s.db.WithTx(ctx, func(tx *database.Tx) error {
 		txRepo := repository.NewCommerceRepositoryWithTx(tx)
+		// Locked re-validation: concurrent shipments serialize here, so a
+		// second partial that fit before the first committed is rechecked
+		// against committed coverage and rejected instead of over-shipping.
+		locked, err := txRepo.GetOrderByIDForUpdate(ctx, order.ID)
+		if err != nil {
+			return fmt.Errorf("lock order: %w", err)
+		}
+		if locked.OnHold {
+			return ErrOrderOnHold
+		}
+		if locked.Status == OrderStatusDelivered || locked.Status == OrderStatusCancelled {
+			return ErrInvalidTransition
+		}
+		lockedLines, err := txRepo.GetOrderLines(ctx, order.ID)
+		if err != nil {
+			return fmt.Errorf("get order lines: %w", err)
+		}
+		lockedOrdered := make(map[int64]repository.OrderLine)
+		for _, l := range lockedLines {
+			lockedOrdered[l.ID] = l
+		}
+		lockedShipped, err := txRepo.ShippedQuantities(ctx, order.ID)
+		if err != nil {
+			return fmt.Errorf("get shipped quantities: %w", err)
+		}
+		for _, it := range items {
+			ol, ok := lockedOrdered[it.OrderLineID]
+			if !ok {
+				return ErrCartLineNotFound
+			}
+			if it.Quantity <= 0 || lockedShipped[it.OrderLineID]+it.Quantity > ol.Quantity {
+				return ErrOrderConflict
+			}
+		}
 		sh, err := txRepo.CreateShipment(ctx, newShipmentCode(), order.ID, carrier, trackingCode, ShipmentStatusPreparing)
 		if err != nil {
 			return fmt.Errorf("create shipment: %w", err)
@@ -172,7 +206,7 @@ func (s *CommerceService) CreateShipment(ctx context.Context, actor int64, order
 			}
 			createdLines = append(createdLines, sl)
 		}
-		if _, err := txRepo.CreateOrderHistory(ctx, order.ID, &order.Status, order.Status, &actor, "shipment created: "+sh.Code); err != nil {
+		if _, err := txRepo.CreateOrderHistory(ctx, order.ID, &locked.Status, locked.Status, &actor, "shipment created: "+sh.Code); err != nil {
 			return fmt.Errorf("record order history: %w", err)
 		}
 		return nil
@@ -207,9 +241,37 @@ func (s *CommerceService) UpdateShipment(ctx context.Context, actor int64, shipm
 		status = shipment.Status
 	}
 
-	updated, err := s.repo.UpdateShipment(ctx, shipment.ID, carrier, trackingCode, status)
+	var updated repository.Shipment
+	err = s.db.WithTx(ctx, func(tx *database.Tx) error {
+		txRepo := repository.NewCommerceRepositoryWithTx(tx)
+		// Locked re-validation: a concurrent status change commits first,
+		// so this attempt re-checks against the locked row instead of
+		// blindly overwriting it.
+		locked, err := txRepo.GetShipmentByIDForUpdate(ctx, shipment.ID)
+		if err != nil {
+			return fmt.Errorf("lock shipment: %w", err)
+		}
+		if status != locked.Status {
+			ok := false
+			for _, next := range validShipmentTransitions[locked.Status] {
+				if next == status {
+					ok = true
+					break
+				}
+			}
+			if !ok {
+				return ErrOrderConflict
+			}
+		}
+		u, err := txRepo.UpdateShipment(ctx, shipment.ID, carrier, trackingCode, status)
+		if err != nil {
+			return fmt.Errorf("update shipment: %w", err)
+		}
+		updated = u
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("update shipment: %w", err)
+		return nil, err
 	}
 	lines, err := s.repo.GetShipmentLines(ctx, updated.ID)
 	if err != nil {

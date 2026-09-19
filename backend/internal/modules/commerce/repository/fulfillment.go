@@ -59,6 +59,22 @@ func scanOrderInto(o *Order, cartID *int64, cartCode *string) {
 	}
 }
 
+// GetOrderByIDForUpdate loads one order holding a row lock, serializing
+// concurrent transitions against the same order.
+func (r *CommerceRepository) GetOrderByIDForUpdate(ctx context.Context, id int64) (Order, error) {
+	var o Order
+	var cartID *int64
+	var cartCode *string
+	err := r.conn().QueryRow(ctx, `
+		SELECT `+orderFullColumns+`
+		FROM commerce."order"
+		WHERE id = $1 AND deleted_at IS NULL
+		FOR UPDATE
+	`, id).Scan(scanOrderFull(&o, &cartID, &cartCode)...)
+	scanOrderInto(&o, cartID, cartCode)
+	return o, err
+}
+
 // GetOrderByID loads one order by integer PK (staff/admin path).
 func (r *CommerceRepository) GetOrderByID(ctx context.Context, id int64) (Order, error) {
 	var o Order
@@ -189,13 +205,25 @@ func (r *CommerceRepository) CreateShipmentLine(ctx context.Context, shipmentID,
 		&l.ID, &l.ShipmentID, &l.OrderLineID, &l.Quantity, &l.CreatedAt)
 	return l, err
 }
-
 func (r *CommerceRepository) GetShipmentByID(ctx context.Context, id int64) (Shipment, error) {
 	var s Shipment
 	err := r.conn().QueryRow(ctx, `
 		SELECT id, code, order_id, carrier, tracking_code, status, created_at, updated_at
 		FROM commerce.shipment
 		WHERE id = $1 AND deleted_at IS NULL
+	`, id).Scan(&s.ID, &s.Code, &s.OrderID, &s.Carrier, &s.TrackingCode, &s.Status, &s.CreatedAt, &s.UpdatedAt)
+	return s, err
+}
+
+// GetShipmentByIDForUpdate loads one shipment holding a row lock,
+// serializing concurrent status transitions on the same shipment.
+func (r *CommerceRepository) GetShipmentByIDForUpdate(ctx context.Context, id int64) (Shipment, error) {
+	var s Shipment
+	err := r.conn().QueryRow(ctx, `
+		SELECT id, code, order_id, carrier, tracking_code, status, created_at, updated_at
+		FROM commerce.shipment
+		WHERE id = $1 AND deleted_at IS NULL
+		FOR UPDATE
 	`, id).Scan(&s.ID, &s.Code, &s.OrderID, &s.Carrier, &s.TrackingCode, &s.Status, &s.CreatedAt, &s.UpdatedAt)
 	return s, err
 }
@@ -310,6 +338,20 @@ func (r *CommerceRepository) GetInvoiceByID(ctx context.Context, id int64) (Invo
 }
 
 func (r *CommerceRepository) ListInvoices(ctx context.Context, orderID int64, limit, offset int) ([]Invoice, error) {
+	return r.listInvoices(ctx, orderID, limit, offset, false)
+}
+
+// ListInvoicesForUpdate lists an order's invoices holding row locks, so a
+// concurrent payment allocation serializes instead of double-applying.
+func (r *CommerceRepository) ListInvoicesForUpdate(ctx context.Context, orderID int64) ([]Invoice, error) {
+	invoices, err := r.listInvoices(ctx, orderID, 0, 0, true)
+	if err != nil {
+		return nil, err
+	}
+	return invoices, nil
+}
+
+func (r *CommerceRepository) listInvoices(ctx context.Context, orderID int64, limit, offset int, forUpdate bool) ([]Invoice, error) {
 	query := `
 		SELECT id, code, order_id, subtotal_minor, total_minor, balance_minor, currency, status, issued_at, created_at, updated_at
 		FROM commerce.invoice
@@ -328,6 +370,9 @@ func (r *CommerceRepository) ListInvoices(ctx context.Context, orderID int64, li
 	if offset > 0 {
 		args = append(args, offset)
 		query += ` OFFSET $` + strconv.Itoa(len(args))
+	}
+	if forUpdate {
+		query += ` FOR UPDATE`
 	}
 	rows, err := r.conn().Query(ctx, query, args...)
 	if err != nil {
