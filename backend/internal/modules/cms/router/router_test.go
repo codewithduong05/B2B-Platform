@@ -30,7 +30,7 @@ func TestMain(m *testing.M) {
 		rawDB, err := sql.Open("pgx", cfg.PostgresDSN())
 		if err == nil && rawDB != nil {
 			_, _ = rawDB.Exec("SELECT pg_advisory_lock($1)", int64(cmsTestDBLockKey))
-			_, _ = rawDB.Exec("DROP SCHEMA IF EXISTS catalog CASCADE; DROP SCHEMA IF EXISTS inventory CASCADE; DROP SCHEMA IF EXISTS identity CASCADE; DROP SCHEMA IF EXISTS pricing CASCADE; DROP SCHEMA IF EXISTS commerce CASCADE; DROP SCHEMA IF EXISTS payments CASCADE; DROP SCHEMA IF EXISTS promotions CASCADE; DROP SCHEMA IF EXISTS crm CASCADE; DROP SCHEMA IF EXISTS suppliers CASCADE; DROP SCHEMA IF EXISTS cms CASCADE; DROP SCHEMA IF EXISTS reports CASCADE; DROP SCHEMA IF EXISTS erp CASCADE; DROP TABLE IF EXISTS schema_migrations CASCADE; DROP TYPE IF EXISTS catalog_handling_class_type CASCADE;")
+			_, _ = rawDB.Exec("DROP SCHEMA IF EXISTS catalog CASCADE; DROP SCHEMA IF EXISTS inventory CASCADE; DROP SCHEMA IF EXISTS identity CASCADE; DROP SCHEMA IF EXISTS pricing CASCADE; DROP SCHEMA IF EXISTS commerce CASCADE; DROP SCHEMA IF EXISTS payments CASCADE; DROP SCHEMA IF EXISTS promotions CASCADE; DROP SCHEMA IF EXISTS crm CASCADE; DROP SCHEMA IF EXISTS suppliers CASCADE; DROP SCHEMA IF EXISTS cms CASCADE; DROP SCHEMA IF EXISTS reports CASCADE; DROP SCHEMA IF EXISTS erp CASCADE; DROP SCHEMA IF EXISTS platform CASCADE; DROP SCHEMA IF EXISTS ai CASCADE; DROP TABLE IF EXISTS schema_migrations CASCADE; DROP TYPE IF EXISTS catalog_handling_class_type CASCADE;")
 
 			if err := database.RunMigrations(ctx, &cfg.Postgres, "file://../../../../migrations"); err != nil {
 				fmt.Printf("TestMain migration error: %v\n", err)
@@ -338,5 +338,136 @@ func TestCMS_HomepageBuilder(t *testing.T) {
 	_ = json.Unmarshal(body, &errBody)
 	if errBody["code"] != "concurrent_modification" {
 		t.Errorf("expected error code 'concurrent_modification', got %q", errBody["code"])
+	}
+}
+
+func TestCMS_NewsletterSubscription(t *testing.T) {
+	env := setupCMSEnv(t)
+	_, _ = env.db.Pool.Exec(context.Background(), "TRUNCATE TABLE cms.newsletter_subscriber RESTART IDENTITY CASCADE")
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+
+	// 1. Subscribe with valid email
+	resp, body := cmsDo(t, env, http.MethodPost, "/api/v1/cms/newsletter/subscribe", fmt.Sprintf(`{"email":"test%s@example.com","first_name":"Test","source":"footer"}`, suffix))
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("subscribe: expected 202, got %d: %s", resp.StatusCode, string(body))
+	}
+	var sub cms_schema.NewsletterSubscriber
+	_ = json.Unmarshal(body, &sub)
+	if sub.Email != fmt.Sprintf("test%s@example.com", suffix) {
+		t.Errorf("expected normalized email, got %q", sub.Email)
+	}
+	if sub.Status != "pending" {
+		t.Errorf("expected status 'pending', got %q", sub.Status)
+	}
+	if sub.Code == "" {
+		t.Errorf("expected subscriber code to be set")
+	}
+
+	// 2. Subscribe with invalid email
+	resp, body = cmsDo(t, env, http.MethodPost, "/api/v1/cms/newsletter/subscribe", `{"email":"not-an-email"}`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("subscribe with invalid email: expected 400, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	// 3. Subscribe with missing email
+	resp, body = cmsDo(t, env, http.MethodPost, "/api/v1/cms/newsletter/subscribe", `{"first_name":"Test"}`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("subscribe with missing email: expected 400, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	// 4. Confirm with invalid token
+	resp, body = cmsDo(t, env, http.MethodPost, "/api/v1/cms/newsletter/confirm", `{"token":"invalid-token"}`)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("confirm with invalid token: expected 404, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	// 5. Unsubscribe with invalid token
+	resp, body = cmsDo(t, env, http.MethodPost, "/api/v1/cms/newsletter/unsubscribe", `{"token":"invalid-token"}`)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("unsubscribe with invalid token: expected 404, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	// 6. Unsubscribe with email (should succeed even if email doesn't exist)
+	resp, body = cmsDo(t, env, http.MethodPost, "/api/v1/cms/newsletter/unsubscribe", `{"email":"nonexistent@example.com"}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("unsubscribe with email: expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	// 7. Unsubscribe with neither token nor email
+	resp, body = cmsDo(t, env, http.MethodPost, "/api/v1/cms/newsletter/unsubscribe", `{}`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("unsubscribe with no token or email: expected 400, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	// 8. Admin list subscribers
+	resp, body = cmsDo(t, env, http.MethodGet, "/api/v1/admin/cms/newsletter/subscribers", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("admin list subscribers: expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+	var listEnv struct {
+		Items []cms_schema.NewsletterSubscriber `json:"items"`
+		Total int                               `json:"total"`
+	}
+	_ = json.Unmarshal(body, &listEnv)
+	if listEnv.Total != 1 {
+		t.Errorf("expected 1 subscriber, got %d", listEnv.Total)
+	}
+
+	// 9. Admin get subscriber by code
+	resp, body = cmsDo(t, env, http.MethodGet, fmt.Sprintf("/api/v1/admin/cms/newsletter/subscribers/%s", sub.Code), "")
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("admin get subscriber: expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	// 10. Admin get stats
+	resp, body = cmsDo(t, env, http.MethodGet, "/api/v1/admin/cms/newsletter/stats", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("admin get stats: expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+	var stats cms_schema.SubscriberStatsResponse
+	_ = json.Unmarshal(body, &stats)
+	if stats.Total != 1 {
+		t.Errorf("expected stats total 1, got %d", stats.Total)
+	}
+	if stats.Pending != 1 {
+		t.Errorf("expected stats pending 1, got %d", stats.Pending)
+	}
+
+	// 11. Admin export subscribers (CSV)
+	resp, body = cmsDo(t, env, http.MethodGet, "/api/v1/admin/cms/newsletter/subscribers/export", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("admin export subscribers: expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "text/csv; charset=utf-8" {
+		t.Errorf("expected CSV content type, got %q", ct)
+	}
+
+	// 12. Admin delete subscriber
+	resp, body = cmsDo(t, env, http.MethodDelete, fmt.Sprintf("/api/v1/admin/cms/newsletter/subscribers/%s", sub.Code), "")
+	if resp.StatusCode != http.StatusNoContent {
+		t.Errorf("admin delete subscriber: expected 204, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	// 13. Verify deletion
+	resp, body = cmsDo(t, env, http.MethodGet, fmt.Sprintf("/api/v1/admin/cms/newsletter/subscribers/%s", sub.Code), "")
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("get deleted subscriber: expected 404, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	// 14. Re-subscribe after unsubscribe (test re-subscription flow)
+	// First, create a new subscriber
+	resp, body = cmsDo(t, env, http.MethodPost, "/api/v1/cms/newsletter/subscribe", fmt.Sprintf(`{"email":"resubscribe%s@example.com"}`, suffix))
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("re-subscribe setup: expected 202, got %d: %s", resp.StatusCode, string(body))
+	}
+	_ = json.Unmarshal(body, &sub)
+
+	// Manually confirm via DB for testing
+	_, _ = env.db.Pool.Exec(context.Background(), "UPDATE cms.newsletter_subscriber SET status = 'confirmed', confirmed_at = NOW() WHERE code = $1", sub.Code)
+
+	// Subscribe again as confirmed → should return 202 with no state change
+	resp, body = cmsDo(t, env, http.MethodPost, "/api/v1/cms/newsletter/subscribe", fmt.Sprintf(`{"email":"resubscribe%s@example.com"}`, suffix))
+	if resp.StatusCode != http.StatusAccepted {
+		t.Errorf("re-subscribe confirmed: expected 202, got %d: %s", resp.StatusCode, string(body))
 	}
 }

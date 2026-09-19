@@ -362,6 +362,13 @@ Prefixes are shown relative to `/api/v1`. **A** = authenticated, **S** = staff p
 | GET | `/cms/pages/{slug}` | P | Static page |
 | GET | `/cms/faqs` | P | FAQs |
 | GET | `/cms/menus/{location}` | P | Navigation menu for a location |
+| GET | `/cms/homepage` | P | Published homepage layout |
+| POST | `/cms/newsletter/subscribe` | P | Subscribe to newsletter |
+| POST | `/cms/newsletter/confirm` | P | Confirm subscription (double opt-in) |
+| POST | `/cms/newsletter/unsubscribe` | P | Unsubscribe from newsletter |
+| GET | `/sitemap.xml` | P | XML sitemap |
+| GET | `/robots.txt` | P | Robots.txt |
+| GET | `/feed/products.xml` | P | Atom product feed |
 | GET | `/admin/cms/articles` | S | Article management |
 | POST | `/admin/cms/articles` | S | Create an article |
 | POST | `/admin/cms/articles/{id}/publish` | S | Publish |
@@ -371,24 +378,19 @@ Prefixes are shown relative to `/api/v1`. **A** = authenticated, **S** = staff p
 | POST | `/admin/cms/menus` | S | Create a menu entry |
 | GET | `/admin/cms/settings` | S | Site settings |
 | PUT | `/admin/cms/settings` | S | Update site settings |
-| GET | `/sitemap.xml` | P | XML sitemap of pages, articles, products, categories |
-| GET | `/robots.txt` | P | Robots.txt with sitemap reference |
-| GET | `/feed/products.xml` | P | Atom product feed |
+| GET | `/admin/cms/homepage` | S | Draft homepage layout |
+| PUT | `/admin/cms/homepage` | S | Replace draft layout |
+| POST | `/admin/cms/homepage/publish` | S | Publish draft |
 | GET | `/admin/cms/seo/templates` | S | List SEO templates |
 | POST | `/admin/cms/seo/templates` | S | Create SEO template |
 | PUT | `/admin/cms/seo/templates/{key}` | S | Update SEO template |
 | GET | `/admin/cms/seo/settings` | S | List SEO settings |
 | PUT | `/admin/cms/seo/settings` | S | Upsert SEO setting |
-| GET | `/sitemap.xml` | P | XML sitemap of pages, articles, products, categories |
-| GET | `/robots.txt` | P | Robots.txt with sitemap reference |
-| GET | `/feed/products.xml` | P | Atom product feed |
-| GET | `/admin/cms/seo/templates` | S | List SEO templates |
-| GET | `/cms/homepage` | P | Published homepage layout for the storefront |
-| GET | `/admin/cms/homepage` | S | Current draft homepage layout for editing |
-| PUT | `/admin/cms/homepage` | S | Replace the entire draft layout (sections and order) |
-| GET | `/admin/cms/seo/settings` | S | List SEO settings |
-| PUT | `/admin/cms/seo/settings` | S | Upsert SEO setting |
-| POST | `/admin/cms/homepage/publish` | S | Copy draft to published and set published_at |
+| GET | `/admin/cms/newsletter/subscribers` | S | List subscribers |
+| GET | `/admin/cms/newsletter/subscribers/{code}` | S | Subscriber detail |
+| DELETE | `/admin/cms/newsletter/subscribers/{code}` | S | Remove subscriber |
+| GET | `/admin/cms/newsletter/subscribers/export` | S | Export subscribers (CSV) |
+| GET | `/admin/cms/newsletter/stats` | S | Subscription statistics |
 
 #### Homepage builder contract
 
@@ -459,6 +461,97 @@ The public endpoint (`GET /cms/homepage`) returns only `sections` (the published
 **Concurrency.** The PUT endpoint uses optimistic locking. The request body includes `expected_updated_at`; if it does not match the server's current `updated_at`, the server returns `409` with code `concurrent_modification`. The client re-fetches the draft, merges, and retries. The publish endpoint uses a row-level lock (`SELECT … FOR UPDATE`) to prevent two simultaneous publishes from interleaving.
 
 **Idempotency.** Homepage mutations do not use idempotency keys (they are CMS content edits, not financial operations). Optimistic locking handles concurrent edits. Publish is naturally idempotent.
+
+#### Newsletter subscription contract
+
+Newsletter subscriptions follow a **double opt-in** lifecycle. A subscriber provides an email address, receives a confirmation token via email, and confirms the subscription before receiving any communications.
+
+**Subscriber object**
+
+```json
+{
+  "code": "sub_abc123",
+  "email": "buyer@example.com",
+  "status": "confirmed",
+  "first_name": "Jane",
+  "source": "footer",
+  "subscribed_at": "2026-09-19T10:00:00Z",
+  "confirmed_at": "2026-09-19T10:05:00Z",
+  "unsubscribed_at": null,
+  "created_at": "2026-09-19T10:00:00Z",
+  "updated_at": "2026-09-19T10:05:00Z"
+}
+```
+
+| Field | Type | Rule |
+|---|---|---|
+| `code` | string | Opaque subscriber identifier. Server-generated. |
+| `email` | string | Normalized (trimmed, lowercased). Unique across all subscribers. |
+| `status` | string | `pending`, `confirmed`, or `unsubscribed`. |
+| `first_name` | string \| null | Optional. Provided at subscribe time. |
+| `source` | string \| null | Origin of the subscription (e.g. `footer`, `checkout`, `admin`). |
+| `subscribed_at` | timestamp \| null | When the subscription was initiated (set on first subscribe). |
+| `confirmed_at` | timestamp \| null | When double opt-in was completed. Null until confirmed. |
+| `unsubscribed_at` | timestamp \| null | When the subscriber unsubscribed. Null if still active. |
+| `created_at` | timestamp | Record creation time. |
+| `updated_at` | timestamp | Last mutation time. |
+
+**Stats response envelope**
+
+```json
+{
+  "total": 1284,
+  "pending": 23,
+  "confirmed": 1198,
+  "unsubscribed": 63,
+  "subscribed_today": 5,
+  "subscribed_last_30_days": 142
+}
+```
+
+**Endpoint detail**
+
+| Endpoint | Behaviour |
+|---|---|
+| `POST /cms/newsletter/subscribe` | Accepts `{ "email": "...", "first_name": "..." }`. Creates a subscriber in `pending` status and sends a confirmation email with a token link. Returns `202` regardless of whether the email is new, already confirmed, or previously unsubscribed (re-subscribe resets to `pending`). Does not reveal whether the email exists. |
+| `POST /cms/newsletter/confirm` | Accepts `{ "token": "..." }`. Transitions `pending` → `confirmed`. Returns `200` with the subscriber object. Tokens expire after 48 hours. |
+| `POST /cms/newsletter/unsubscribe` | Accepts `{ "token": "..." }` or `{ "email": "..." }`. Token path: transitions to `unsubscribed` immediately. Email path: sends an unsubscribe notification email with a one-click token link (does not immediately unsubscribe — prevents abuse). Both paths return `200` with `{ "status": "processed" }`. Does not reveal whether the email exists. |
+| `GET /admin/cms/newsletter/subscribers` | Paginated list (offset: `page`/`page_size`, max 200). Filter by `status` (`pending`, `confirmed`, `unsubscribed`). Search by `q` (matches email, first_name). Sorted by `created_at` descending by default. |
+| `GET /admin/cms/newsletter/subscribers/{code}` | Subscriber detail. Returns the full subscriber object. |
+| `DELETE /admin/cms/newsletter/subscribers/{code}` | Removes the subscriber record entirely (GDPR deletion). Returns `204`. Idempotent — deleting an already-deleted subscriber returns `204`. |
+| `GET /admin/cms/newsletter/subscribers/export` | CSV export of confirmed subscribers. Query params: `format=csv` (default). Columns: email, first_name, status, subscribed_at, confirmed_at, source. Returns `text/csv` content type. |
+| `GET /admin/cms/newsletter/stats` | Dashboard statistics. Returns total counts by status, subscribed_today, subscribed_last_30_days. |
+
+**Validation**
+
+| Condition | Status | Code |
+|---|---|---|
+| `email` missing or empty | 400 | `invalid_request` |
+| `email` not a valid format | 400 | `invalid_email` |
+| Request body not valid JSON | 400 | `invalid_body` |
+| `token` missing, empty, or expired | 400 | `invalid_token` |
+| `token` not found | 404 | `token_not_found` |
+| Unsubscribe with neither `token` nor `email` | 400 | `invalid_request` |
+
+**Subscription lifecycle.** A subscriber transitions through states: `pending` → `confirmed` → `unsubscribed`. Re-subscribing after unsubscribe resets to `pending` (requires re-confirmation). There is no direct `confirmed` → `pending` transition. A subscriber who was never confirmed and whose token has expired remains `pending` indefinitely until they re-subscribe or are deleted by an admin.
+
+**Double opt-in.** No subscriber receives communications until their status is `confirmed`. The subscribe endpoint creates the record and triggers a confirmation email. The confirm endpoint validates the token and transitions the status. This is mandatory — there is no single-step subscribe-and-confirm endpoint.
+
+**Token semantics.** Confirmation and unsubscribe tokens are cryptographically random, single-use, and expire after 48 hours. A used token returns `409` (`token_already_used`). An expired token returns `400` (`invalid_token`). A non-existent token returns `404` (`token_not_found`). Tokens are stored as SHA-256 hashes; the raw token is sent via email and never stored.
+
+**Email normalization.** Emails are trimmed and lowercased before storage and lookup. `Jane@Example.com` and `jane@example.com` resolve to the same subscriber.
+
+**Anti-enumeration.** Public endpoints never reveal whether an email address is already subscribed. Subscribe returns `202` for new, confirmed, and pending emails alike. Unsubscribe returns `200` regardless of whether the email exists.
+
+**Re-subscription.** A `confirmed` subscriber who calls subscribe again receives `202` (no state change, no new email sent). An `unsubscribed` subscriber who calls subscribe again receives `202` and is reset to `pending` with a new confirmation email sent. A `pending` subscriber who calls subscribe again receives `202` and a new confirmation email is sent (previous token invalidated).
+
+**Rate limiting.** Public newsletter endpoints are rate-limited to 10 requests per minute per IP (same class as registration). Admin endpoints follow standard staff write limits (60/minute).
+
+**Privacy.** Subscribers can request complete data removal via `DELETE /admin/cms/newsletter/subscribers/{code}` (performed by staff on behalf of the subscriber). Deletion is permanent — the record is removed, not soft-deleted. Audit log retains the fact of deletion but not the subscriber data.
+
+**Scope.** This contract covers the subscription lifecycle only. Campaign management (create, schedule, send) and delivery statistics (open rates, bounce tracking) are out of scope for this specification and will be defined separately (A9.8 future slice).
+
+**Idempotency.** Newsletter mutations do not use idempotency keys (they are not financial operations). The token-based flows are naturally idempotent: a used token always returns `409`, and duplicate subscribe requests return `202` without side effects.
 
 ### `suppliers`
 

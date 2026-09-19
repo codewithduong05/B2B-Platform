@@ -1,10 +1,12 @@
 package router
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/atlas-platform/backend/internal/modules/cms/schema"
 	"github.com/atlas-platform/backend/internal/modules/cms/service"
@@ -33,6 +35,10 @@ func (rt *Router) RegisterRoutes(authMiddleware, adminMiddleware func(http.Handl
 		r.Get("/faqs", rt.handleListFaqs)
 		r.Get("/menus/{location}", rt.handleListMenus)
 		r.Get("/homepage", rt.handleGetPublishedHomepage)
+
+		r.Post("/newsletter/subscribe", rt.handleSubscribe)
+		r.Post("/newsletter/confirm", rt.handleConfirmSubscription)
+		r.Post("/newsletter/unsubscribe", rt.handleUnsubscribe)
 	})
 
 	rt.router.Get("/sitemap.xml", rt.handleSitemap)
@@ -67,6 +73,14 @@ func (rt *Router) RegisterRoutes(authMiddleware, adminMiddleware func(http.Handl
 			r.Put("/templates/{key}", rt.handleAdminUpdateSeoTemplate)
 			r.Get("/settings", rt.handleAdminListSeoSettings)
 			r.Put("/settings", rt.handleAdminUpsertSeoSetting)
+		})
+
+		r.Route("/newsletter", func(r chi.Router) {
+			r.Get("/subscribers", rt.handleAdminListSubscribers)
+			r.Get("/subscribers/export", rt.handleAdminExportSubscribers)
+			r.Get("/subscribers/{code}", rt.handleAdminGetSubscriber)
+			r.Delete("/subscribers/{code}", rt.handleAdminDeleteSubscriber)
+			r.Get("/stats", rt.handleAdminNewsletterStats)
 		})
 	})
 }
@@ -546,6 +560,189 @@ func (rt *Router) handlePublishHomepage(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	rt.writeJSON(w, http.StatusOK, homepage)
+}
+
+func (rt *Router) handleSubscribe(w http.ResponseWriter, r *http.Request) {
+	var req schema.SubscribeRequest
+	defer r.Body.Close()
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_body", "invalid request body")
+		return
+	}
+	if req.Email == "" {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "email is required")
+		return
+	}
+	sub, err := rt.service.Subscribe(r.Context(), req)
+	if err != nil {
+		if errors.Is(err, service.ErrInvalidInput) {
+			rt.writeError(w, r, http.StatusBadRequest, "invalid_email", "valid email is required")
+			return
+		}
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	rt.writeJSON(w, http.StatusAccepted, sub)
+}
+
+func (rt *Router) handleConfirmSubscription(w http.ResponseWriter, r *http.Request) {
+	var req schema.ConfirmRequest
+	defer r.Body.Close()
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_body", "invalid request body")
+		return
+	}
+	if req.Token == "" {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_token", "token is required")
+		return
+	}
+	sub, err := rt.service.ConfirmSubscription(r.Context(), req.Token)
+	if err != nil {
+		if errors.Is(err, service.ErrTokenNotFound) {
+			rt.writeError(w, r, http.StatusNotFound, "token_not_found", "token not found")
+			return
+		}
+		if errors.Is(err, service.ErrTokenExpired) {
+			rt.writeError(w, r, http.StatusBadRequest, "invalid_token", "token has expired")
+			return
+		}
+		if errors.Is(err, service.ErrTokenAlreadyUsed) {
+			rt.writeError(w, r, http.StatusConflict, "token_already_used", "token has already been used")
+			return
+		}
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	rt.writeJSON(w, http.StatusOK, sub)
+}
+
+func (rt *Router) handleUnsubscribe(w http.ResponseWriter, r *http.Request) {
+	var req schema.UnsubscribeRequest
+	defer r.Body.Close()
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_body", "invalid request body")
+		return
+	}
+	if req.Token != "" {
+		if err := rt.service.UnsubscribeByToken(r.Context(), req.Token); err != nil {
+			if errors.Is(err, service.ErrTokenNotFound) {
+				rt.writeError(w, r, http.StatusNotFound, "token_not_found", "token not found")
+				return
+			}
+			if errors.Is(err, service.ErrTokenExpired) {
+				rt.writeError(w, r, http.StatusBadRequest, "invalid_token", "token has expired")
+				return
+			}
+			rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+			return
+		}
+		rt.writeJSON(w, http.StatusOK, map[string]string{"status": "processed"})
+		return
+	}
+	if req.Email != "" {
+		if err := rt.service.RequestUnsubscribeByEmail(r.Context(), req.Email); err != nil {
+			if errors.Is(err, service.ErrInvalidInput) {
+				rt.writeError(w, r, http.StatusBadRequest, "invalid_email", "valid email is required")
+				return
+			}
+			rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+			return
+		}
+		rt.writeJSON(w, http.StatusOK, map[string]string{"status": "processed"})
+		return
+	}
+	rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "token or email is required")
+}
+
+func (rt *Router) handleAdminListSubscribers(w http.ResponseWriter, r *http.Request) {
+	page, limit, offset := parsePage(r)
+	status := r.URL.Query().Get("status")
+	search := r.URL.Query().Get("q")
+	subs, total, err := rt.service.ListNewsletterSubscribers(r.Context(), status, search, limit, offset)
+	if err != nil {
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	if subs == nil {
+		subs = []schema.NewsletterSubscriber{}
+	}
+	rt.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"items": subs, "page": page, "page_size": limit,
+		"total": total, "has_next": int(page)*int(limit) < total,
+	})
+}
+
+func (rt *Router) handleAdminGetSubscriber(w http.ResponseWriter, r *http.Request) {
+	code := chi.URLParam(r, "code")
+	if code == "" {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "subscriber code is required")
+		return
+	}
+	sub, err := rt.service.GetNewsletterSubscriberByCode(r.Context(), code)
+	if err != nil {
+		if errors.Is(err, service.ErrNotFound) {
+			rt.writeError(w, r, http.StatusNotFound, "not_found", "subscriber not found")
+			return
+		}
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	rt.writeJSON(w, http.StatusOK, sub)
+}
+
+func (rt *Router) handleAdminDeleteSubscriber(w http.ResponseWriter, r *http.Request) {
+	code := chi.URLParam(r, "code")
+	if code == "" {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "subscriber code is required")
+		return
+	}
+	if err := rt.service.DeleteNewsletterSubscriber(r.Context(), code); err != nil {
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (rt *Router) handleAdminExportSubscribers(w http.ResponseWriter, r *http.Request) {
+	subs, err := rt.service.ExportNewsletterSubscribers(r.Context())
+	if err != nil {
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", "attachment; filename=subscribers.csv")
+	w.WriteHeader(http.StatusOK)
+	cw := csv.NewWriter(w)
+	_ = cw.Write([]string{"email", "first_name", "status", "subscribed_at", "confirmed_at", "source"})
+	for _, sub := range subs {
+		firstName := ""
+		if sub.FirstName != nil {
+			firstName = *sub.FirstName
+		}
+		source := ""
+		if sub.Source != nil {
+			source = *sub.Source
+		}
+		subscribedAt := ""
+		if sub.SubscribedAt != nil {
+			subscribedAt = sub.SubscribedAt.Format(time.RFC3339)
+		}
+		confirmedAt := ""
+		if sub.ConfirmedAt != nil {
+			confirmedAt = sub.ConfirmedAt.Format(time.RFC3339)
+		}
+		_ = cw.Write([]string{sub.Email, firstName, sub.Status, subscribedAt, confirmedAt, source})
+	}
+	cw.Flush()
+}
+
+func (rt *Router) handleAdminNewsletterStats(w http.ResponseWriter, r *http.Request) {
+	stats, err := rt.service.GetNewsletterStats(r.Context())
+	if err != nil {
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	rt.writeJSON(w, http.StatusOK, stats)
 }
 
 func (rt *Router) writeJSON(w http.ResponseWriter, status int, data interface{}) {

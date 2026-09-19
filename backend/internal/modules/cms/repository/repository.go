@@ -782,3 +782,268 @@ func (r *CMSRepository) PublishHomepage(ctx context.Context, publishedSections [
 	}
 	return r.GetHomepageLayout(ctx)
 }
+
+type NewsletterSubscriber struct {
+	ID                        int64
+	Code                      string
+	Email                     string
+	Status                    string
+	FirstName                 *string
+	Source                    *string
+	ConfirmationTokenHash     *string
+	TokenExpiresAt            *time.Time
+	UnsubscribeTokenHash      *string
+	UnsubscribeTokenExpiresAt *time.Time
+	SubscribedAt              *time.Time
+	ConfirmedAt               *time.Time
+	UnsubscribedAt            *time.Time
+	CreatedAt                 time.Time
+	UpdatedAt                 time.Time
+}
+
+const newsletterSubscriberColumns = `id, code, email, status, first_name, source, confirmation_token_hash, token_expires_at, unsubscribe_token_hash, unsubscribe_token_expires_at, subscribed_at, confirmed_at, unsubscribed_at, created_at, updated_at`
+
+func scanNewsletterSubscriber(row interface{ Scan(...any) error }) (NewsletterSubscriber, error) {
+	var s NewsletterSubscriber
+	var firstName, source, confirmHash, unsubHash pgtype.Text
+	var tokenExp, unsubTokenExp, subscribedAt, confirmedAt, unsubscribedAt pgtype.Timestamptz
+	err := row.Scan(
+		&s.ID, &s.Code, &s.Email, &s.Status, &firstName, &source,
+		&confirmHash, &tokenExp, &unsubHash, &unsubTokenExp,
+		&subscribedAt, &confirmedAt, &unsubscribedAt,
+		&s.CreatedAt, &s.UpdatedAt,
+	)
+	if err != nil {
+		return s, err
+	}
+	if firstName.Valid {
+		v := firstName.String
+		s.FirstName = &v
+	}
+	if source.Valid {
+		v := source.String
+		s.Source = &v
+	}
+	if confirmHash.Valid {
+		v := confirmHash.String
+		s.ConfirmationTokenHash = &v
+	}
+	if tokenExp.Valid {
+		t := tokenExp.Time
+		s.TokenExpiresAt = &t
+	}
+	if unsubHash.Valid {
+		v := unsubHash.String
+		s.UnsubscribeTokenHash = &v
+	}
+	if unsubTokenExp.Valid {
+		t := unsubTokenExp.Time
+		s.UnsubscribeTokenExpiresAt = &t
+	}
+	if subscribedAt.Valid {
+		t := subscribedAt.Time
+		s.SubscribedAt = &t
+	}
+	if confirmedAt.Valid {
+		t := confirmedAt.Time
+		s.ConfirmedAt = &t
+	}
+	if unsubscribedAt.Valid {
+		t := unsubscribedAt.Time
+		s.UnsubscribedAt = &t
+	}
+	return s, nil
+}
+
+func (r *CMSRepository) CreateNewsletterSubscriber(ctx context.Context, code, email string, firstName, source *string, confirmTokenHash string, tokenExpiresAt time.Time) (NewsletterSubscriber, error) {
+	var fn, src pgtype.Text
+	if firstName != nil {
+		fn = pgtype.Text{String: *firstName, Valid: true}
+	}
+	if source != nil {
+		src = pgtype.Text{String: *source, Valid: true}
+	}
+	var id int64
+	err := r.conn().QueryRow(ctx, `
+		INSERT INTO cms.newsletter_subscriber (code, email, status, first_name, source, confirmation_token_hash, token_expires_at, subscribed_at)
+		VALUES ($1, $2, 'pending', $3, $4, $5, $6, NOW())
+		RETURNING id
+	`, code, email, fn, src, confirmTokenHash, tokenExpiresAt).Scan(&id)
+	if err != nil {
+		return NewsletterSubscriber{}, err
+	}
+	return r.GetNewsletterSubscriberByID(ctx, id)
+}
+
+func (r *CMSRepository) GetNewsletterSubscriberByID(ctx context.Context, id int64) (NewsletterSubscriber, error) {
+	row := r.conn().QueryRow(ctx, `SELECT `+newsletterSubscriberColumns+` FROM cms.newsletter_subscriber WHERE id = $1`, id)
+	return scanNewsletterSubscriber(row)
+}
+
+func (r *CMSRepository) GetNewsletterSubscriberByEmail(ctx context.Context, email string) (NewsletterSubscriber, error) {
+	row := r.conn().QueryRow(ctx, `SELECT `+newsletterSubscriberColumns+` FROM cms.newsletter_subscriber WHERE email = $1`, email)
+	return scanNewsletterSubscriber(row)
+}
+
+func (r *CMSRepository) GetNewsletterSubscriberByCode(ctx context.Context, code string) (NewsletterSubscriber, error) {
+	row := r.conn().QueryRow(ctx, `SELECT `+newsletterSubscriberColumns+` FROM cms.newsletter_subscriber WHERE code = $1`, code)
+	return scanNewsletterSubscriber(row)
+}
+
+func (r *CMSRepository) GetNewsletterSubscriberByConfirmTokenHash(ctx context.Context, hash string) (NewsletterSubscriber, error) {
+	row := r.conn().QueryRow(ctx, `SELECT `+newsletterSubscriberColumns+` FROM cms.newsletter_subscriber WHERE confirmation_token_hash = $1`, hash)
+	return scanNewsletterSubscriber(row)
+}
+
+func (r *CMSRepository) GetNewsletterSubscriberByUnsubTokenHash(ctx context.Context, hash string) (NewsletterSubscriber, error) {
+	row := r.conn().QueryRow(ctx, `SELECT `+newsletterSubscriberColumns+` FROM cms.newsletter_subscriber WHERE unsubscribe_token_hash = $1`, hash)
+	return scanNewsletterSubscriber(row)
+}
+
+func (r *CMSRepository) UpdateNewsletterSubscriberStatus(ctx context.Context, id int64, status string, confirmHash *string, tokenExp *time.Time, unsubHash *string, unsubTokenExp *time.Time) (NewsletterSubscriber, error) {
+	var ch, uh pgtype.Text
+	var te, ute pgtype.Timestamptz
+	if confirmHash != nil {
+		ch = pgtype.Text{String: *confirmHash, Valid: true}
+	}
+	if tokenExp != nil {
+		te = pgtype.Timestamptz{Time: *tokenExp, Valid: true}
+	}
+	if unsubHash != nil {
+		uh = pgtype.Text{String: *unsubHash, Valid: true}
+	}
+	if unsubTokenExp != nil {
+		ute = pgtype.Timestamptz{Time: *unsubTokenExp, Valid: true}
+	}
+
+	setClauses := `status = $2, updated_at = NOW()`
+	args := []any{id, status}
+	argN := 3
+
+	if confirmHash != nil || ch.Valid {
+		setClauses += `, confirmation_token_hash = $` + strconv.Itoa(argN)
+		args = append(args, ch)
+		argN++
+	}
+	if tokenExp != nil || te.Valid {
+		setClauses += `, token_expires_at = $` + strconv.Itoa(argN)
+		args = append(args, te)
+		argN++
+	}
+	if unsubHash != nil || uh.Valid {
+		setClauses += `, unsubscribe_token_hash = $` + strconv.Itoa(argN)
+		args = append(args, uh)
+		argN++
+	}
+	if unsubTokenExp != nil || ute.Valid {
+		setClauses += `, unsubscribe_token_expires_at = $` + strconv.Itoa(argN)
+		args = append(args, ute)
+		argN++
+	}
+
+	switch status {
+	case "confirmed":
+		setClauses += `, confirmed_at = NOW()`
+	case "unsubscribed":
+		setClauses += `, unsubscribed_at = NOW()`
+	}
+
+	query := `UPDATE cms.newsletter_subscriber SET ` + setClauses + ` WHERE id = $1`
+	_, err := r.conn().Exec(ctx, query, args...)
+	if err != nil {
+		return NewsletterSubscriber{}, err
+	}
+	return r.GetNewsletterSubscriberByID(ctx, id)
+}
+
+func (r *CMSRepository) ListNewsletterSubscribers(ctx context.Context, status, search string, limit, offset int32) ([]NewsletterSubscriber, int, error) {
+	where := `1=1`
+	var args []any
+	argN := 1
+	if status != "" {
+		where += ` AND status = $` + strconv.Itoa(argN)
+		args = append(args, status)
+		argN++
+	}
+	if search != "" {
+		where += ` AND (email ILIKE $` + strconv.Itoa(argN) + ` OR first_name ILIKE $` + strconv.Itoa(argN) + `)`
+		args = append(args, "%"+search+"%")
+		argN++
+	}
+
+	countQuery := `SELECT COUNT(*) FROM cms.newsletter_subscriber WHERE ` + where
+	var total int
+	err := r.conn().QueryRow(ctx, countQuery, args...).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	query := `SELECT ` + newsletterSubscriberColumns + ` FROM cms.newsletter_subscriber WHERE ` + where + ` ORDER BY created_at DESC LIMIT $` + strconv.Itoa(argN) + ` OFFSET $` + strconv.Itoa(argN+1)
+	args = append(args, limit, offset)
+	rows, err := r.conn().Query(ctx, query, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var subs []NewsletterSubscriber
+	for rows.Next() {
+		s, err := scanNewsletterSubscriber(rows)
+		if err != nil {
+			return nil, 0, err
+		}
+		subs = append(subs, s)
+	}
+	return subs, total, nil
+}
+
+func (r *CMSRepository) DeleteNewsletterSubscriber(ctx context.Context, code string) error {
+	_, err := r.conn().Exec(ctx, `DELETE FROM cms.newsletter_subscriber WHERE code = $1`, code)
+	return err
+}
+
+type NewsletterStats struct {
+	Total             int
+	Pending           int
+	Confirmed         int
+	Unsubscribed      int
+	SubscribedToday   int
+	SubscribedLast30D int
+}
+
+func (r *CMSRepository) GetNewsletterStats(ctx context.Context) (NewsletterStats, error) {
+	var s NewsletterStats
+	err := r.conn().QueryRow(ctx, `
+		SELECT
+			COUNT(*) AS total,
+			COUNT(*) FILTER (WHERE status = 'pending') AS pending,
+			COUNT(*) FILTER (WHERE status = 'confirmed') AS confirmed,
+			COUNT(*) FILTER (WHERE status = 'unsubscribed') AS unsubscribed,
+			COUNT(*) FILTER (WHERE subscribed_at >= CURRENT_DATE) AS subscribed_today,
+			COUNT(*) FILTER (WHERE subscribed_at >= NOW() - INTERVAL '30 days') AS subscribed_last_30_days
+		FROM cms.newsletter_subscriber
+	`).Scan(&s.Total, &s.Pending, &s.Confirmed, &s.Unsubscribed, &s.SubscribedToday, &s.SubscribedLast30D)
+	return s, err
+}
+
+func (r *CMSRepository) ListConfirmedSubscribersForExport(ctx context.Context) ([]NewsletterSubscriber, error) {
+	rows, err := r.conn().Query(ctx, `
+		SELECT `+newsletterSubscriberColumns+`
+		FROM cms.newsletter_subscriber
+		WHERE status = 'confirmed'
+		ORDER BY created_at DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var subs []NewsletterSubscriber
+	for rows.Next() {
+		s, err := scanNewsletterSubscriber(rows)
+		if err != nil {
+			return nil, err
+		}
+		subs = append(subs, s)
+	}
+	return subs, nil
+}

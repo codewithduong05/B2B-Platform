@@ -178,3 +178,48 @@ type HomepageResponse struct {
 	UpdatedAt         time.Time         `json:"updated_at"`
 	UpdatedBy         *string           `json:"updated_by,omitempty"`
 }
+
+type NewsletterSubscriber struct {
+	Code           string     `json:"code"`
+	Email          string     `json:"email"`
+	Status         string     `json:"status"`
+	FirstName      *string    `json:"first_name,omitempty"`
+	Source         *string    `json:"source,omitempty"`
+	SubscribedAt   *time.Time `json:"subscribed_at,omitempty"`
+	ConfirmedAt    *time.Time `json:"confirmed_at,omitempty"`
+	UnsubscribedAt *time.Time `json:"unsubscribed_at,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+}
+
+type SubscribeRequest struct {
+	Email     string `json:"email"`
+	FirstName string `json:"first_name,omitempty"`
+	Source    string `json:"source,omitempty"`
+}
+
+type ConfirmRequest struct {
+	Token string `json:"token"`
+}
+
+type UnsubscribeRequest struct {
+	Token string `json:"token,omitempty"`
+	Email string `json:"email,omitempty"`
+}
+
+type SubscriberListResponse struct {
+	Items    []NewsletterSubscriber `json:"items"`
+	Page     int32                  `json:"page"`
+	PageSize int32                  `json:"page_size"`
+	Total    int                    `json:"total"`
+	HasNext  bool                   `json:"has_next"`
+}
+
+type SubscriberStatsResponse struct {
+	Total             int `json:"total"`
+	Pending           int `json:"pending"`
+	Confirmed         int `json:"confirmed"`
+	Unsubscribed      int `json:"unsubscribed"`
+	SubscribedToday   int `json:"subscribed_today"`
+	SubscribedLast30D int `json:"subscribed_last_30_days"`
+}

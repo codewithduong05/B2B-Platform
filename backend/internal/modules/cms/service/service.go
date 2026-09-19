@@ -2,10 +2,14 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/rand/v2"
+	mathrand "math/rand/v2"
+	"net/mail"
 	"strconv"
 	"strings"
 	"time"
@@ -38,7 +42,7 @@ func newCode(prefix string) string {
 	return fmt.Sprintf("%s%s%s",
 		prefix,
 		strconv.FormatInt(time.Now().UnixNano(), 36),
-		strconv.FormatUint(uint64(rand.Uint32()), 36),
+		strconv.FormatUint(uint64(mathrand.Uint32()), 36),
 	)
 }
 
@@ -740,4 +744,242 @@ func xmlEscape(s string) string {
 	s = strings.ReplaceAll(s, "\"", "&quot;")
 	s = strings.ReplaceAll(s, "'", "&apos;")
 	return s
+}
+
+var (
+	ErrTokenExpired     = errors.New("token expired")
+	ErrTokenAlreadyUsed = errors.New("token already used")
+	ErrTokenNotFound    = errors.New("token not found")
+)
+
+func generateToken() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
+func hashToken(token string) string {
+	h := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(h[:])
+}
+
+func normalizeEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
+}
+
+func isValidEmail(email string) bool {
+	_, err := mail.ParseAddress(email)
+	return err == nil
+}
+
+func toNewsletterSubscriberResponse(s repository.NewsletterSubscriber) *schema.NewsletterSubscriber {
+	return &schema.NewsletterSubscriber{
+		Code:           s.Code,
+		Email:          s.Email,
+		Status:         s.Status,
+		FirstName:      s.FirstName,
+		Source:         s.Source,
+		SubscribedAt:   s.SubscribedAt,
+		ConfirmedAt:    s.ConfirmedAt,
+		UnsubscribedAt: s.UnsubscribedAt,
+		CreatedAt:      s.CreatedAt,
+		UpdatedAt:      s.UpdatedAt,
+	}
+}
+
+func (s *CMSService) Subscribe(ctx context.Context, req schema.SubscribeRequest) (*schema.NewsletterSubscriber, error) {
+	email := normalizeEmail(req.Email)
+	if email == "" {
+		return nil, ErrInvalidInput
+	}
+	if !isValidEmail(email) {
+		return nil, ErrInvalidInput
+	}
+
+	token, err := generateToken()
+	if err != nil {
+		return nil, fmt.Errorf("generate token: %w", err)
+	}
+	tokenHash := hashToken(token)
+	tokenExpiry := time.Now().Add(48 * time.Hour)
+
+	existing, err := s.repo.GetNewsletterSubscriberByEmail(ctx, email)
+	if err == nil {
+		switch existing.Status {
+		case "confirmed":
+			return toNewsletterSubscriberResponse(existing), nil
+		case "pending", "unsubscribed":
+			updated, err := s.repo.UpdateNewsletterSubscriberStatus(ctx, existing.ID, "pending", &tokenHash, &tokenExpiry, nil, nil)
+			if err != nil {
+				return nil, fmt.Errorf("re-subscribe: %w", err)
+			}
+			_ = token
+			return toNewsletterSubscriberResponse(updated), nil
+		}
+	}
+
+	firstName := strings.TrimSpace(req.FirstName)
+	var firstNamePtr *string
+	if firstName != "" {
+		firstNamePtr = &firstName
+	}
+	source := strings.TrimSpace(req.Source)
+	var sourcePtr *string
+	if source != "" {
+		sourcePtr = &source
+	}
+
+	sub, err := s.repo.CreateNewsletterSubscriber(ctx, newCode("sub_"), email, firstNamePtr, sourcePtr, tokenHash, tokenExpiry)
+	if err != nil {
+		return nil, fmt.Errorf("create subscriber: %w", err)
+	}
+	_ = token
+	return toNewsletterSubscriberResponse(sub), nil
+}
+
+func (s *CMSService) ConfirmSubscription(ctx context.Context, token string) (*schema.NewsletterSubscriber, error) {
+	if strings.TrimSpace(token) == "" {
+		return nil, ErrInvalidInput
+	}
+
+	tokenHash := hashToken(token)
+	sub, err := s.repo.GetNewsletterSubscriberByConfirmTokenHash(ctx, tokenHash)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrTokenNotFound
+		}
+		return nil, fmt.Errorf("lookup token: %w", err)
+	}
+
+	if sub.Status == "confirmed" {
+		return nil, ErrTokenAlreadyUsed
+	}
+
+	if sub.TokenExpiresAt != nil && sub.TokenExpiresAt.Before(time.Now()) {
+		return nil, ErrTokenExpired
+	}
+
+	updated, err := s.repo.UpdateNewsletterSubscriberStatus(ctx, sub.ID, "confirmed", nil, nil, nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("confirm subscriber: %w", err)
+	}
+	return toNewsletterSubscriberResponse(updated), nil
+}
+
+func (s *CMSService) UnsubscribeByToken(ctx context.Context, token string) error {
+	if strings.TrimSpace(token) == "" {
+		return ErrInvalidInput
+	}
+
+	tokenHash := hashToken(token)
+	sub, err := s.repo.GetNewsletterSubscriberByUnsubTokenHash(ctx, tokenHash)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrTokenNotFound
+		}
+		return fmt.Errorf("lookup unsubscribe token: %w", err)
+	}
+
+	if sub.UnsubscribeTokenExpiresAt != nil && sub.UnsubscribeTokenExpiresAt.Before(time.Now()) {
+		return ErrTokenExpired
+	}
+
+	if sub.Status == "unsubscribed" {
+		return nil
+	}
+
+	_, err = s.repo.UpdateNewsletterSubscriberStatus(ctx, sub.ID, "unsubscribed", nil, nil, nil, nil)
+	if err != nil {
+		return fmt.Errorf("unsubscribe: %w", err)
+	}
+	return nil
+}
+
+func (s *CMSService) RequestUnsubscribeByEmail(ctx context.Context, email string) error {
+	email = normalizeEmail(email)
+	if email == "" {
+		return ErrInvalidInput
+	}
+
+	sub, err := s.repo.GetNewsletterSubscriberByEmail(ctx, email)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return fmt.Errorf("lookup subscriber: %w", err)
+	}
+
+	if sub.Status == "unsubscribed" {
+		return nil
+	}
+
+	token, err := generateToken()
+	if err != nil {
+		return fmt.Errorf("generate unsubscribe token: %w", err)
+	}
+	tokenHash := hashToken(token)
+	tokenExpiry := time.Now().Add(48 * time.Hour)
+
+	_, err = s.repo.UpdateNewsletterSubscriberStatus(ctx, sub.ID, sub.Status, nil, nil, &tokenHash, &tokenExpiry)
+	if err != nil {
+		return fmt.Errorf("set unsubscribe token: %w", err)
+	}
+	_ = token
+	return nil
+}
+
+func (s *CMSService) ListNewsletterSubscribers(ctx context.Context, status, search string, limit, offset int32) ([]schema.NewsletterSubscriber, int, error) {
+	subs, total, err := s.repo.ListNewsletterSubscribers(ctx, status, search, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	out := make([]schema.NewsletterSubscriber, 0, len(subs))
+	for _, sub := range subs {
+		out = append(out, *toNewsletterSubscriberResponse(sub))
+	}
+	return out, total, nil
+}
+
+func (s *CMSService) GetNewsletterSubscriberByCode(ctx context.Context, code string) (*schema.NewsletterSubscriber, error) {
+	sub, err := s.repo.GetNewsletterSubscriberByCode(ctx, code)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("get subscriber: %w", err)
+	}
+	return toNewsletterSubscriberResponse(sub), nil
+}
+
+func (s *CMSService) DeleteNewsletterSubscriber(ctx context.Context, code string) error {
+	return s.repo.DeleteNewsletterSubscriber(ctx, code)
+}
+
+func (s *CMSService) GetNewsletterStats(ctx context.Context) (*schema.SubscriberStatsResponse, error) {
+	stats, err := s.repo.GetNewsletterStats(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get stats: %w", err)
+	}
+	return &schema.SubscriberStatsResponse{
+		Total:             stats.Total,
+		Pending:           stats.Pending,
+		Confirmed:         stats.Confirmed,
+		Unsubscribed:      stats.Unsubscribed,
+		SubscribedToday:   stats.SubscribedToday,
+		SubscribedLast30D: stats.SubscribedLast30D,
+	}, nil
+}
+
+func (s *CMSService) ExportNewsletterSubscribers(ctx context.Context) ([]schema.NewsletterSubscriber, error) {
+	subs, err := s.repo.ListConfirmedSubscribersForExport(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list subscribers for export: %w", err)
+	}
+	out := make([]schema.NewsletterSubscriber, 0, len(subs))
+	for _, sub := range subs {
+		out = append(out, *toNewsletterSubscriberResponse(sub))
+	}
+	return out, nil
 }
