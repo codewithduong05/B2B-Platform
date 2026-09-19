@@ -13,7 +13,7 @@ Four surfaces:
 |---|---|---|
 | **Store** | Buyers and their staff | Nuxt web app, buyer-facing |
 | **Admin** | Atlas staff | Nuxt web app, staff-facing |
-| **API** | All clients | FastAPI, versioned |
+| **API** | All clients | Go/Chi, versioned |
 | **Mobile** | Buyers, on the move | Native Android and iOS |
 
 Route paths use `{param}` for path parameters. Paths are relative to the app root.

@@ -34,11 +34,11 @@ The split is deliberate. An application change and a deployment change are diffe
 
 | Layer | Technology | Rationale |
 |---|---|---|
-| Backend runtime | Python | Team familiarity, ecosystem, typing support |
-| API framework | FastAPI | Async-native, dependency injection, OpenAPI generation |
-| ORM | SQLAlchemy 2.x async | Mature, explicit, works with async drivers |
-| Migrations | Alembic | One migration location per module |
-| Validation | Pydantic v2 | Request and response schemas as the contract |
+| Backend runtime | Go 1.25.x | Static typing, single deployable, verified implementation (see `docs/adr/0001-go-backend-stack.md`) |
+| API framework | Chi v5 | Lightweight router; module routers mounted under `/api/v1` in `cmd/api/main.go` |
+| Data access | pgx/v5 + SQLC | Generated type-safe queries over pgx; generated files are never hand-edited |
+| Migrations | golang-migrate | Numbered `migrations/NNNN_*.up.sql` / `*.down.sql` pairs, dependency-safe rollback order |
+| Validation | Go structs + `encoding/json` | Request and response schemas as the contract; sentinel domain errors mapped to the standard envelope |
 | Database | PostgreSQL | Single source of truth; strong consistency, JSON support, full-text search |
 | Cache / result backend | Redis-compatible | Cache plus Celery result backend |
 | Broker | RabbitMQ | Durable task queues plus topic-based event routing |
@@ -119,7 +119,7 @@ Ports are the standard defaults for each technology unless noted, so most need n
 | 5555 | Flower | Worker monitoring |
 | 5672 | RabbitMQ AMQP | }
 | 6379 | Redis | Cache and Celery result backend |
-| 8000 | API (FastAPI) | `/docs` and `/redoc` enabled locally only |
+| 8000 | API (Go/Chi) | Health and API routes; see `cmd/api/main.go` |
 | 9000 / 9001 | Object storage | API / console |
 | 9090 | Prometheus | |
 | 9200 | OpenSearch | |

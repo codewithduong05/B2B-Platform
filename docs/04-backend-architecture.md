@@ -11,11 +11,11 @@ How the backend is organised, how a module is shaped, and which rules are enforc
 
 ## The monolith
 
-One FastAPI application. Thirteen modules. Each module owns one PostgreSQL schema and exposes one public surface.
+One Go application. Thirteen modules. Each module owns one PostgreSQL schema and exposes one public surface.
 
 ```mermaid
 flowchart TD
-    subgraph App["FastAPI application"]
+    subgraph App["Go application"]
         MR["main — mounts every module router under /api/v1"]
         subgraph M1["modules/identity"]
         end
@@ -42,60 +42,49 @@ Modules never reach into each other's internals. They talk through a public surf
 Every module has the same shape. Uniformity is the point — a new engineer should be able to open any module and know where things are.
 
 ```
-modules/<module>/
-├── __init__.py           # public surface — the ONLY cross-module entry point
-├── MODULE.md             # purpose, owned tables, events published/consumed
-├── routers/              # HTTP layer
-│   ├── public.py         #   unauthenticated
-│   ├── authed.py         #   authenticated buyer / supplier
-│   └── admin.py          #   staff, permission-gated
-├── services/             # business logic, one file per concern
-├── repositories/         # data access, function-based
-├── models/               # SQLAlchemy ORM, one file per aggregate
-├── schemas/              # Pydantic v2 request / response
-├── tasks/                # Celery tasks
-├── batches/              # scheduled beat tasks
-├── events.py             # domain events this module publishes
-├── subscribers.py        # domain events this module consumes
-├── exceptions.py         # module-local error types
-└── tests/
-    ├── unit/
-    └── integration/
+internal/modules/<module>/
+├── init.go             # wiring — constructors mounted in cmd/api/main.go
+├── router/             # HTTP layer (Chi)
+│   └── router.go       #   buyer routes + staff routes under admin middleware
+├── service/            # business logic, one file per concern
+│   ├── services.go     #   core service, constructor, shared errors
+│   └── <concern>.go    #   e.g. checkout.go, lifecycle.go
+├── repository/         # data access over pgx/SQLC
+│   └── repository.go
+├── schema/             # request/response structs (the contract)
+│   └── schema.go
+└── events/             # domain events this module publishes
+    └── events.go
 ```
+
+SQL lives in `migrations/NNNN_<name>.up.sql` / `.down.sql`; SQLC generates
+typed queries under `internal/database/queries/` (never hand-edited). Tests
+live beside the code as `*_test.go` (e.g. `router/router_test.go`) with a
+shared advisory-lock `TestMain` per package.
 
 ### What each layer may do
 
 | Layer | May | Must not |
 |---|---|---|
-| `routers/` | Validate input, resolve auth dependencies, call one service, shape output | Contain business rules, import models, open transactions directly |
-| `services/` | Enforce rules, orchestrate repositories, own transaction boundaries, publish events | Issue raw SQL, return ORM objects to routers |
-| `repositories/` | Query and persist, build filters | Decide business outcomes, raise business errors |
-| `models/` | Map tables, declare relationships and constraints | Import from services, routers, or other modules |
-| `schemas/` | Validate and serialise | Contain business logic |
+| `router/` | Validate input, resolve auth dependencies, call one service, shape output | Contain business rules, import models, open transactions directly |
+| `service/` | Enforce rules, orchestrate repositories, own transaction boundaries, publish events | Issue raw SQL, return persistence (SQLC) types to routers |
+| `repository/` | Query and persist, build filters | Decide business outcomes, raise business errors |
+| `migrations/` + generated queries | Declare tables, constraints, and typed queries | Hand-edit generated files, bypass the repository |
+| `schema/` | Validate and serialise | Contain business logic |
 
-### `__init__.py` — the public surface
+### Constructors — the public surface
 
-This file is a module's API. It is the only thing another module may import.
+A module exposes constructors. `cmd/api/main.go` wires them; nothing else reaches into internals.
 
-```python
-"""Public surface of the catalogue module."""
-
-from modules.catalog.routers import router as catalog_router
-from modules.catalog.services.product_service import (
-    get_product_for_buyer,
-    list_visible_products,
-)
-from modules.catalog.schemas.product_schema import ProductSummary
-
-__all__ = [
-    "catalog_router",
-    "get_product_for_buyer",
-    "list_visible_products",
-    "ProductSummary",
-]
+```go
+// Mounting the catalogue module.
+catalogServices := catalog_service.NewServices(db)
+catalogRouter := catalog.New(catalogServices)
+catalogRouter.RegisterRoutes()
+srv.Router().Mount("/api/v1", catalogRouter.ChiRouter())
 ```
 
-**Rule:** `__all__` is a contract, not a formality. Adding to it is a deliberate act. Removing from it is a breaking change for consumers.
+**Rule:** the constructor set is a contract, not a formality. Adding to it is a deliberate act. Removing from it is a breaking change for consumers.
 
 ---
 
@@ -105,14 +94,12 @@ CI enforces these. A pull request that breaks one does not merge.
 
 ### Rule 1 — No deep cross-module imports
 
-```python
-# ALLOWED — importing the public surface
-from modules.identity import CurrentUser, require_permission
+```go
+// ALLOWED — a sanctioned cross-module read through the owning service
+order, err := commerceSvc.GetOrder(ctx, buyerID, orderCode)
 
-# FORBIDDEN — reaching into internals
-from modules.identity.models.user_model import User
-from modules.identity.services.auth_service import login_user
-from modules.identity.repositories.user_repository import find_by_email
+// FORBIDDEN — reaching into another module's repository
+import commerce_repo "github.com/atlas-platform/backend/internal/modules/commerce/repository"
 ```
 
 **Why.** A deep import silently couples two modules at the implementation level. The owning module can no longer refactor without breaking a consumer it does not know about. Within months, the boundary is fiction.
@@ -123,15 +110,12 @@ from modules.identity.repositories.user_repository import find_by_email
 
 When something your module does matters to another module, publish an event.
 
-```python
-# ALLOWED — notify, do not command
-from modules.commerce import publish_order_placed
+```go
+// ALLOWED — notify, do not command
+_ = publisher.Publish(ctx, events.EventOrderPlaced, envelope)
 
-await publish_order_placed(order_id=order.id, supplier_ids=order.supplier_ids)
-
-# FORBIDDEN — synchronous reach-across for background work
-from modules.inventory import allocate_stock_for_order
-await allocate_stock_for_order(order.id)   # couples request latency to a peer
+// FORBIDDEN — synchronous reach-across for background work
+_, _ = inventorySvc.AllocateStockForOrder(ctx, orderID) // couples request latency to a peer
 ```
 
 **Why.** Synchronous cross-module calls turn a modular monolith back into a tangle and couple one module's latency and availability to another's.
@@ -140,15 +124,18 @@ await allocate_stock_for_order(order.id)   # couples request latency to a peer
 
 ### Rule 3 — One schema per module
 
-```python
-class Product(Base):
-    __tablename__ = "product"
-    __table_args__ = {"schema": "catalog"}
+```sql
+-- Owned by the catalogue schema; see migrations/000003_*.up.sql.
+CREATE TABLE catalog.product (
+    id BIGSERIAL PRIMARY KEY,
+    code VARCHAR(26) NOT NULL UNIQUE
+    -- ...
+);
 ```
 
 **Why.** Ownership becomes visible in the database. A future extraction is mechanical. Reporting reads can be granted schema by schema.
 
-**Enforcement.** Model metadata is checked in CI; Alembic `version_locations` lists one folder per module.
+**Enforcement.** Migrations are numbered `NNNN_<name>.up.sql` / `.down.sql` pairs; every migration has a rollback path.
 
 ### Rule 4 — Public routes are IDOR-safe
 
@@ -174,20 +161,12 @@ A module never queries another module's tables, not even for a read.
 
 All inference goes through the `ai` module.
 
-```python
-# ALLOWED — through the gateway, with provenance and accounting
-from modules.ai import propose
+```go
+// ALLOWED — through the gateway, with provenance and accounting
+result := ai.Propose(ctx, ai.ProposalInput{...})
 
-result = await propose(
-    prompt_key="cart.from_text",
-    inputs={"text": raw_text, "locale": locale},
-    tenant_id=buyer.tenant_id,
-    idempotency_key=request_id,
-)
-
-# FORBIDDEN — a private provider client, invisible to cost and guardrails
-import modelfleet
-client = modelfleet.AsyncClient(api_key=settings.MODEL_PROVIDER_KEY)
+// FORBIDDEN — a private provider client, invisible to cost and guardrails
+client := model.NewClient(apiKey) // outside modules/ai: invisible to all four
 ```
 
 **Why.** One gateway means one place to redact, one place to bound cost, one place to version a prompt, and one place to answer "what did the model see?". A per-module client is invisible to all four.
@@ -198,11 +177,11 @@ client = modelfleet.AsyncClient(api_key=settings.MODEL_PROVIDER_KEY)
 
 ### Rule 7 — Model output is untrusted input
 
-A completion is validated against a Pydantic schema before any code uses it. It is never executed, never interpolated into SQL, and never allowed to select a tool or alter instructions.
+A completion is validated against a Go struct (decoded with `encoding/json` and range-checked) before any code uses it. It is never executed, never interpolated into SQL, and never allowed to select a tool or alter instructions.
 
 **Why.** Every AI feature has two input surfaces: the one you control and the one an attacker does. Free text from a buyer, a supplier's spec sheet, and a scraped product description are all attacker-reachable. Treating output as trusted collapses the two.
 
-**Enforcement.** Every `ai` response type is a Pydantic model. Retrieval surfaces are wrapped in a type that cannot be executed. Injection cases live in the evaluation set and fail the build.
+**Enforcement.** Every `ai` response type is a Go struct. Retrieval surfaces are wrapped in a type that cannot be executed. Injection cases live in the evaluation set and fail the build.
 
 ---
 
@@ -233,7 +212,7 @@ sequenceDiagram
     C->>R: HTTP request
     R->>D: resolve identity + permissions
     D-->>R: principal or 401/403
-    R->>R: validate payload (Pydantic)
+    R->>R: validate payload (schema structs)
     R->>S: call service
     S->>P: read / write
     P->>DB: SQL
@@ -267,30 +246,14 @@ When a service must lock several rows, it locks in a fixed order: **lot → rese
 
 A single error hierarchy, one response shape, correct status codes.
 
-```python
-class ServiceError(Exception):
-    """Base for all domain errors."""
-    status_code = 400
-    code = "service_error"
-
-class NotFoundError(ServiceError):
-    status_code = 404
-    code = "not_found"
-
-class ValidationError(ServiceError):
-    status_code = 422
-    code = "validation_error"
-
-class ConflictError(ServiceError):
-    status_code = 409
-    code = "conflict"
-
-class PermissionDeniedError(ServiceError):
-    status_code = 403
-    code = "permission_denied"
-
-class InsufficientStockError(ConflictError):
-    code = "insufficient_stock"
+```go
+// Sentinel domain errors; routers map them to status codes.
+var (
+    ErrProductNotFound   = errors.New("product not found")     // 404
+    ErrInvalidQuantity   = errors.New("invalid quantity")       // 400
+    ErrInsufficientStock = errors.New("insufficient stock")     // 422
+    ErrOrderConflict     = errors.New("order state changed underneath") // 409
+)
 ```
 
 | Rule | Detail |
@@ -315,10 +278,10 @@ class InsufficientStockError(ConflictError):
 | Timestamp | `<verb>_at` | `created_at`, `published_at` |
 | Boolean | `is_` / `has_` prefix | `is_active`, `has_variants` |
 | Enum | `<entity>_<attribute>` | `order_status`, `lot_state` |
-| Router file | audience | `public.py`, `authed.py`, `admin.py` |
-| Service file | `<concern>_service.py` | `checkout_service.py` |
-| Repository file | `<aggregate>_repository.py` | `order_repository.py` |
-| Celery task | `<module>.<verb>_<noun>` | `commerce.dispatch_order` |
+| Router file | audience | `router.go` (buyer routes + staff group) |
+| Service file | one file per concern | `services.go`, `checkout.go` |
+| Repository file | one per aggregate | `repository.go` |
+| Migration | numbered up/down pair | `000008_commerce_checkout_orders` |
 | Domain event | `<entity>.<past_tense_verb>` | `order.placed`, `stock.reserved` |
 
 ---
@@ -346,15 +309,15 @@ class InsufficientStockError(ConflictError):
 | Anti-pattern | Why it is rejected |
 |---|---|
 | Business logic in a router | Untestable, duplicated, and hidden from the service layer |
-| A service returning an ORM object | Leaks persistence into the HTTP layer; breaks on lazy loading |
+| A service returning a SQLC row type | Leaks persistence into the HTTP layer |
 | A repository raising a business error | Data access layer should have no opinion on business rules |
 | A cross-module join "just this once" | The boundary erodes one exception at a time |
 | An external HTTP call inside a transaction | Holds a connection for the duration of a third party's latency |
 | A `try/except` that swallows and continues | Turns a loud failure into silent data corruption |
-| A model importing from a service | Circular dependency and an untestable unit |
+| A repository importing from a service | Circular dependency and an untestable unit |
 | A migration bundled with an unrelated feature | Unreviewable; if it fails, both must roll back |
 | A module importing a model-provider SDK | Bypasses guardrails, cost accounting, and prompt versioning at once |
-| Parsing a completion with `json.loads` and hoping | A malformed response becomes corrupt data instead of a failure |
+| Decoding a completion without struct validation | A malformed response becomes corrupt data instead of a failure |
 | Letting retrieved text steer the prompt or a tool | This is the prompt-injection path |
 | Passing contract prices to a third-party model by default | Commercial confidentiality breach |
 | An AI call inside a database transaction | Holds a connection for the duration of a model's latency |

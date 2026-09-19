@@ -112,9 +112,10 @@ Conventional commits. One logical change per commit.
 
 | Thing | Convention | Example |
 |---|---|---|
-| Python | `snake_case` | `checkout_service` |
-| Python constants | `UPPER_SNAKE` | `MAX_PAGE_SIZE` |
-| Python classes | `PascalCase` | `OrderService` |
+| Go packages | lowercase singular noun | `commerce`, `pricing` |
+| Go exported identifiers | `PascalCase` | `OrderService`, `ErrOrderNotFound` |
+| Go unexported identifiers | `camelCase` | `orderTotal`, `canonicalPayloadHash` |
+| Go constructors | `New` prefix | `NewCommerceService` |
 | TypeScript variables | `camelCase` | `orderTotal` |
 | TypeScript types | `PascalCase` | `OrderSummary` |
 | Vue components | `PascalCase` files | `OrderSummaryCard.vue` |
@@ -241,7 +242,7 @@ Write an ADR when a decision is expensive to reverse, affects more than one modu
 | **AI proposal** | A model-generated suggestion a human must confirm. The only shape AI output may take. |
 | **Allocation** | Choosing which stock lots satisfy an order line. |
 | **Alloy** | Grafana Alloy, the telemetry collector. Receives OTLP and is the only component that names a storage backend. |
-| **API** | The FastAPI service exposing `/api/v1`. |
+| **API** | The Go service exposing `/api/v1`. |
 | **Admin** | The staff-facing Nuxt application. |
 | **Audit log** | An append-only record of who changed what, when, and from what. |
 | **Availability** | Whether an item can currently be ordered, based on stock and eligibility. |
@@ -349,7 +350,7 @@ Questions that come up repeatedly. Decide once, here.
 | May AI set a price, stock level, or eligibility outcome? | No. Never. |
 | May AI trigger a tool or an action on its own? | No. A deterministic decision in code does that. |
 | Where does a model call go? | Through the `ai` module. A provider SDK outside it fails review. |
-| Can I parse a completion with `json.loads`? | No. Validate against a Pydantic model or treat it as a failure. |
+| Can I decode a completion without struct validation? | No. Decode with `encoding/json` into a Go struct, range-check it, or treat it as a failure. |
 | Does this AI feature need a non-AI path? | Yes. Always. It is a release gate. |
 | Can I change a prompt without an evaluation run? | No. A version without a score is not promoted. |
 | Can I show a proposal as if it were confirmed? | No. Proposals are labelled, confirmed explicitly, and never auto-applied. |

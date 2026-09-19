@@ -40,7 +40,7 @@ flowchart TD
     subgraph AppTier["Application tier"]
         ST["store — Nuxt BFF<br/>buyer storefront"]
         AD["admin — Nuxt BFF<br/>staff console"]
-        AP["api — FastAPI<br/>modular monolith"]
+        AP["api — Go/Chi<br/>modular monolith"]
         WK["workers — Celery<br/>high · default · low"]
         BT["scheduler — beat"]
     end
@@ -107,8 +107,8 @@ flowchart TD
     R["routers<br/>HTTP shape · auth dependency · validation"]
     S["services<br/>business rules · orchestration · transactions"]
     P["repositories<br/>data access"]
-    M["models<br/>ORM mapping"]
-    SC["schemas<br/>Pydantic request / response"]
+    M["migrations<br/>DDL + constraints"]
+    SC["schemas<br/>Go request / response structs"]
 
     R --> S
     R --> SC
@@ -247,7 +247,7 @@ Each decision below is recorded in short form: what, why, and what it costs. Whe
 
 ### D1 — Modular monolith, not microservices
 
-**Decision.** One FastAPI deployable containing thirteen bounded modules.
+**Decision.** One Go deployable containing thirteen bounded modules.
 
 **Why.** Thirteen modules do not justify thirteen pipelines, thirteen deploys, and a distributed tracing problem. Boundaries are a code-organisation problem first. Splitting before the seams are proven produces a distributed monolith — the worst of both.
 

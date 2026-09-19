@@ -65,7 +65,7 @@ flowchart LR
     subgraph Runtime[Application runtime]
         Store[store<br/>Nuxt BFF]
         Admin[admin<br/>Nuxt BFF]
-        API[api<br/>FastAPI]
+        API[api<br/>Go/Chi]
         Worker[workers<br/>async jobs]
         Beat[scheduler]
     end
@@ -107,9 +107,9 @@ flowchart LR
 
 | Layer | Choice |
 |---|---|
-| Backend | Go lang + FastAPI, modular monolith, one deployable |
-| Data access | SQLAlchemy 2.x async, Alembic migrations |
-| Validation | Pydantic v2 |
+| Backend | Go 1.25.x + Chi v5, modular monolith, one deployable |
+| Data access | pgx/v5 + SQLC generated queries, golang-migrate migrations |
+| Validation | Go structs + `encoding/json` |
 | Database | PostgreSQL — single source of truth |
 | Cache | Redis-compatible |
 | Broker | RabbitMQ (task queue + domain events) |

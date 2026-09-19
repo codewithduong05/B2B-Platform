@@ -56,11 +56,13 @@ Say this out loud at the start, or day ten will be a disappointment.
 
 ## Day by day
 
+> Toolchain note (2026-09-19, [ADR-0001](../../docs/adr/0001-go-backend-stack.md)): this plan was executed with the Go toolchain — Chi, pgx/SQLC, golang-migrate, `go test -race` — wherever superseded tool nouns appear below. Day flow and acceptance criteria are unchanged.
+
 | Day | Intern — build | Owner — decide, provide, review | Output at end of day |
 |---|---|---|---|
 | **1** | Read docs [01](01-product-brief.md), [02](02-system-architecture.md), [03](03-infrastructure.md), [11](11-conventions-and-glossary.md). Install the toolchain. Bring up the local stack. | Create the repositories. Grant access. Set branch protection. Name the reviewer. Confirm the stack versions. | Local stack starts with one command |
-| **2** | FastAPI application: settings, `/health`, `/readyz`, logging, request IDs. Module folder convention. Linter, formatter, commit hooks. | Confirm the module list and which three come first. Confirm the error response shape. | API starts; health endpoints answer |
-| **3** | PostgreSQL and Alembic. Schema-per-module. First migration. Async session handling. Test database. | Confirm naming conventions. Confirm that seed data is generated, never copied from anywhere real. | Migration applies and rolls back cleanly |
+| **2** | Go application with Chi: settings, `/health`, `/readyz`, logging, request IDs. Module folder convention. Linter, formatter, commit hooks. | Confirm the module list and which three come first. Confirm the error response shape. | API starts; health endpoints answer |
+| **3** | PostgreSQL and golang-migrate. Schema-per-module. First migration. pgx pooling. Test database. | Confirm naming conventions. Confirm that seed data is generated, never copied from anywhere real. | Migration applies and rolls back cleanly |
 | **4** | `identity`: user entity, password hashing, registration endpoint, input validation. | Review the first pull request. Confirm token lifetimes and rate limits. Confirm the public-identifier scheme. | A buyer can register |
 | **5** | `identity`: login, access token, refresh, current-user dependency, authorisation guard. **Then stop and demo.** | **Checkpoint 1.** Review the week. Answer everything still open. Agree the scope of the second week. | Register, log in, and reach an authenticated endpoint |
 | **6** | `catalogue`: product and category entities, public list endpoint with pagination, search over names. | Provide or approve seed product content. Confirm the public-identifier scheme and pagination style. | A catalogue list and a detail endpoint |

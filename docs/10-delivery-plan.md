@@ -42,12 +42,14 @@ flowchart LR
 
 **Goal.** A developer can clone, run, and test the system. Nothing user-facing.
 
+> Toolchain note (2026-09-19, [ADR-0001](../../docs/adr/0001-go-backend-stack.md)): M0 was executed with the Go toolchain — Chi router, pgx/SQLC, golang-migrate with up/down pairs. Milestone flow and exit criteria are unchanged.
+
 | Deliverable | Detail |
 |---|---|
 | Repository structure | Six repositories, branch protection, merge gates |
-| Backend skeleton | FastAPI app, configuration from environment, health and readiness |
+| Backend skeleton | Go app with Chi router, configuration from environment, health and readiness |
 | Module scaffold | One empty module with the full directory shape, as the template |
-| Database connectivity | Async engine, session handling, one Alembic setup per module |
+| Database connectivity | pgx pool, schema-per-module, numbered golang-migrate migrations |
 | Sample migration | One table, migration applied, rollback tested |
 | Event bus | Exchange declared, publisher and consumer helpers, one event round-trip |
 | Task queue | One queue per priority, one task, one scheduled task, dead-letter handling |
