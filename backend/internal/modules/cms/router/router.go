@@ -103,6 +103,14 @@ func (rt *Router) RegisterRoutes(authMiddleware, adminMiddleware func(http.Handl
 			r.Get("/", rt.handleAdminListContactEnquiries)
 			r.Get("/{code}", rt.handleAdminGetContactEnquiry)
 		})
+
+		r.Route("/faqs", func(r chi.Router) {
+			r.Get("/", rt.handleAdminListFaqs)
+			r.Post("/", rt.handleAdminCreateFaq)
+			r.Get("/{code}", rt.handleAdminGetFaq)
+			r.Put("/{code}", rt.handleAdminUpdateFaq)
+			r.Delete("/{code}", rt.handleAdminDeleteFaq)
+		})
 	})
 }
 
@@ -1048,6 +1056,109 @@ func (rt *Router) handleAdminGetContactEnquiry(w http.ResponseWriter, r *http.Re
 		return
 	}
 	rt.writeJSON(w, http.StatusOK, resp)
+}
+
+// FAQ Admin
+func (rt *Router) handleAdminListFaqs(w http.ResponseWriter, r *http.Request) {
+	page, limit, offset := parsePage(r)
+	q := r.URL.Query()
+	search := q.Get("q")
+	var activeOnly *bool
+	if v := q.Get("is_active"); v != "" {
+		b := v == "true"
+		activeOnly = &b
+	}
+
+	faqs, total, err := rt.service.ListFaqsAdmin(r.Context(), activeOnly, search, limit, offset)
+	if err != nil {
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	if faqs == nil {
+		faqs = []schema.FaqResponse{}
+	}
+	rt.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"items": faqs, "page": page, "page_size": limit,
+		"total": total, "has_next": int(page)*int(limit) < total,
+	})
+}
+
+func (rt *Router) handleAdminCreateFaq(w http.ResponseWriter, r *http.Request) {
+	var req schema.UpsertFaqRequest
+	defer r.Body.Close()
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_body", "invalid request body")
+		return
+	}
+	if strings.TrimSpace(req.Question) == "" || strings.TrimSpace(req.Answer) == "" {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "question and answer are required")
+		return
+	}
+	faq, err := rt.service.CreateFaq(r.Context(), req)
+	if err != nil {
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	rt.writeJSON(w, http.StatusCreated, faq)
+}
+
+func (rt *Router) handleAdminGetFaq(w http.ResponseWriter, r *http.Request) {
+	code := chi.URLParam(r, "code")
+	if code == "" {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "faq code is required")
+		return
+	}
+	faq, err := rt.service.GetFaqByCode(r.Context(), code)
+	if err != nil {
+		if errors.Is(err, service.ErrNotFound) {
+			rt.writeError(w, r, http.StatusNotFound, "not_found", "faq not found")
+			return
+		}
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	rt.writeJSON(w, http.StatusOK, faq)
+}
+
+func (rt *Router) handleAdminUpdateFaq(w http.ResponseWriter, r *http.Request) {
+	code := chi.URLParam(r, "code")
+	if code == "" {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "faq code is required")
+		return
+	}
+	var req schema.UpsertFaqRequest
+	defer r.Body.Close()
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_body", "invalid request body")
+		return
+	}
+	faq, err := rt.service.UpdateFaq(r.Context(), code, req)
+	if err != nil {
+		if errors.Is(err, service.ErrNotFound) {
+			rt.writeError(w, r, http.StatusNotFound, "not_found", "faq not found")
+			return
+		}
+		if errors.Is(err, service.ErrInvalidInput) {
+			rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "question and answer are required")
+			return
+		}
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	rt.writeJSON(w, http.StatusOK, faq)
+}
+
+func (rt *Router) handleAdminDeleteFaq(w http.ResponseWriter, r *http.Request) {
+	code := chi.URLParam(r, "code")
+	if code == "" {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "faq code is required")
+		return
+	}
+	if err := rt.service.DeleteFaq(r.Context(), code); err != nil {
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (rt *Router) writeJSON(w http.ResponseWriter, status int, data interface{}) {

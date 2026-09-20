@@ -158,7 +158,7 @@ func (s *CMSService) CreateFaq(ctx context.Context, req schema.UpsertFaqRequest)
 	if req.IsActive != nil {
 		isActive = *req.IsActive
 	}
-	f, err := s.repo.CreateFaq(ctx, newCode("faq_"), req.Question, req.Answer, req.SortOrder, isActive)
+	f, err := s.repo.CreateFaq(ctx, newCode("faq_"), req.Question, req.Answer, req.Category, req.SortOrder, isActive)
 	if err != nil {
 		return nil, err
 	}
@@ -175,6 +175,61 @@ func (s *CMSService) ListFaqs(ctx context.Context, activeOnly bool) ([]schema.Fa
 		out = append(out, *toFaqResponse(f))
 	}
 	return out, nil
+}
+
+// FAQ Admin
+func (s *CMSService) ListFaqsAdmin(ctx context.Context, activeOnly *bool, search string, limit, offset int32) ([]schema.FaqResponse, int, error) {
+	faqs, total, err := s.repo.ListFaqsAdmin(ctx, activeOnly, search, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	out := make([]schema.FaqResponse, 0, len(faqs))
+	for _, f := range faqs {
+		out = append(out, *toFaqResponse(f))
+	}
+	return out, total, nil
+}
+
+func (s *CMSService) GetFaqByCode(ctx context.Context, code string) (*schema.FaqResponse, error) {
+	f, err := s.repo.GetFaqByCode(ctx, code)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("get faq: %w", err)
+	}
+	return toFaqResponse(f), nil
+}
+
+func (s *CMSService) UpdateFaq(ctx context.Context, code string, req schema.UpsertFaqRequest) (*schema.FaqResponse, error) {
+	if strings.TrimSpace(req.Question) == "" || strings.TrimSpace(req.Answer) == "" {
+		return nil, ErrInvalidInput
+	}
+	var category *string
+	if req.Category != nil && strings.TrimSpace(*req.Category) != "" {
+		cat := strings.TrimSpace(*req.Category)
+		category = &cat
+	}
+	var sortOrder *int
+	if req.SortOrder != 0 {
+		sortOrder = &req.SortOrder
+	}
+	var isActive *bool
+	if req.IsActive != nil {
+		isActive = req.IsActive
+	}
+	f, err := s.repo.UpdateFaq(ctx, code, req.Question, req.Answer, category, sortOrder, isActive)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("update faq: %w", err)
+	}
+	return toFaqResponse(f), nil
+}
+
+func (s *CMSService) DeleteFaq(ctx context.Context, code string) error {
+	return s.repo.DeleteFaq(ctx, code)
 }
 
 // Banners
@@ -308,8 +363,14 @@ func toPageResponse(p repository.Page) *schema.PageResponse {
 
 func toFaqResponse(f repository.Faq) *schema.FaqResponse {
 	return &schema.FaqResponse{
-		Code: f.Code, Question: f.Question, Answer: f.Answer,
-		SortOrder: f.SortOrder, IsActive: f.IsActive, CreatedAt: f.CreatedAt,
+		Code:      f.Code,
+		Question:  f.Question,
+		Answer:    f.Answer,
+		Category:  f.Category,
+		SortOrder: f.SortOrder,
+		IsActive:  f.IsActive,
+		CreatedAt: f.CreatedAt,
+		UpdatedAt: f.UpdatedAt,
 	}
 }
 

@@ -49,16 +49,19 @@ type FaqResponse struct {
 	Code      string    `json:"code"`
 	Question  string    `json:"question"`
 	Answer    string    `json:"answer"`
+	Category  *string   `json:"category,omitempty"`
 	SortOrder int       `json:"sort_order"`
 	IsActive  bool      `json:"is_active"`
 	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type UpsertFaqRequest struct {
-	Question  string `json:"question"`
-	Answer    string `json:"answer"`
-	SortOrder int    `json:"sort_order,omitempty"`
-	IsActive  *bool  `json:"is_active,omitempty"`
+	Question  string  `json:"question"`
+	Answer    string  `json:"answer"`
+	Category  *string `json:"category,omitempty"`
+	SortOrder int     `json:"sort_order,omitempty"`
+	IsActive  *bool   `json:"is_active,omitempty"`
 }
 
 type BannerResponse struct {

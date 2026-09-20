@@ -1,6 +1,12 @@
--- M5 Analytics: Analytics schema and rollup tables
+-- M5 Analytics: Analytics schema, rollup tables, and analytics_ro role
 
 CREATE SCHEMA IF NOT EXISTS analytics;
+
+-- Create analytics_ro role for read-only analytics tool access
+-- IMPORTANT: Replace 'YOUR_ANALYTICS_RO_PASSWORD' with a strong, secret password in production.
+CREATE ROLE analytics_ro NOINHERIT LOGIN PASSWORD 'YOUR_ANALYTICS_RO_PASSWORD';
+ALTER ROLE analytics_ro SET statement_timeout = '300s';
+ALTER ROLE analytics_ro SET idle_in_transaction_session_timeout = '60s';
 
 -- 1. Daily Order Rollup
 CREATE TABLE analytics.daily_order_rollup (

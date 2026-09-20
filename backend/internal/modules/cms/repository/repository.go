@@ -3,7 +3,9 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/atlas-platform/backend/internal/database"
@@ -69,9 +71,11 @@ type Faq struct {
 	Code      string
 	Question  string
 	Answer    string
+	Category  *string
 	SortOrder int
 	IsActive  bool
 	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 type Banner struct {
@@ -285,36 +289,156 @@ func (r *CMSRepository) ListPages(ctx context.Context) ([]Page, error) {
 	return pages, nil
 }
 
-func (r *CMSRepository) CreateFaq(ctx context.Context, code, question, answer string, sortOrder int, isActive bool) (Faq, error) {
+func (r *CMSRepository) CreateFaq(ctx context.Context, code, question, answer string, category *string, sortOrder int, isActive bool) (Faq, error) {
 	var f Faq
+	var cat pgtype.Text
+	if category != nil {
+		cat = pgtype.Text{String: *category, Valid: true}
+	}
 	err := r.conn().QueryRow(ctx, `
-		INSERT INTO cms.faq (code, question, answer, sort_order, is_active)
-		VALUES ($1, $2, $3, $4, $5)
-		RETURNING id, code, question, answer, sort_order, is_active, created_at
-	`, code, question, answer, sortOrder, isActive).Scan(&f.ID, &f.Code, &f.Question, &f.Answer, &f.SortOrder, &f.IsActive, &f.CreatedAt)
+		INSERT INTO cms.faq (code, question, answer, category, sort_order, is_active)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		RETURNING id, code, question, answer, category, sort_order, is_active, created_at, updated_at
+	`, code, question, answer, cat, sortOrder, isActive).Scan(&f.ID, &f.Code, &f.Question, &f.Answer, &cat, &f.SortOrder, &f.IsActive, &f.CreatedAt, &f.UpdatedAt)
+	if cat.Valid {
+		s := cat.String
+		f.Category = &s
+	}
 	return f, err
 }
 
-func (r *CMSRepository) ListFaqs(ctx context.Context, activeOnly bool) ([]Faq, error) {
-	query := `SELECT id, code, question, answer, sort_order, is_active, created_at FROM cms.faq WHERE deleted_at IS NULL`
-	if activeOnly {
-		query += ` AND is_active = TRUE`
+func (r *CMSRepository) GetFaqByCode(ctx context.Context, code string) (Faq, error) {
+	var f Faq
+	var cat pgtype.Text
+	err := r.conn().QueryRow(ctx, `
+		SELECT id, code, question, answer, category, sort_order, is_active, created_at, updated_at
+		FROM cms.faq WHERE code = $1 AND deleted_at IS NULL
+	`, code).Scan(&f.ID, &f.Code, &f.Question, &f.Answer, &cat, &f.SortOrder, &f.IsActive, &f.CreatedAt, &f.UpdatedAt)
+	if cat.Valid {
+		s := cat.String
+		f.Category = &s
 	}
-	query += ` ORDER BY sort_order, created_at`
-	rows, err := r.conn().Query(ctx, query)
+	return f, err
+}
+
+func (r *CMSRepository) UpdateFaq(ctx context.Context, code, question, answer string, category *string, sortOrder *int, isActive *bool) (Faq, error) {
+	var f Faq
+	var cat pgtype.Text
+	setClauses := []string{}
+	args := []any{code}
+	argN := 2
+
+	if question != "" {
+		setClauses = append(setClauses, fmt.Sprintf("question = $%d", argN))
+		args = append(args, question)
+		argN++
+	}
+	if answer != "" {
+		setClauses = append(setClauses, fmt.Sprintf("answer = $%d", argN))
+		args = append(args, answer)
+		argN++
+	}
+	if category != nil {
+		setClauses = append(setClauses, fmt.Sprintf("category = $%d", argN))
+		var c pgtype.Text
+		if *category != "" {
+			c = pgtype.Text{String: *category, Valid: true}
+		}
+		args = append(args, c)
+		argN++
+	}
+	if sortOrder != nil {
+		setClauses = append(setClauses, fmt.Sprintf("sort_order = $%d", argN))
+		args = append(args, *sortOrder)
+		argN++
+	}
+	if isActive != nil {
+		setClauses = append(setClauses, fmt.Sprintf("is_active = $%d", argN))
+		args = append(args, *isActive)
+		argN++
+	}
+
+	if len(setClauses) == 0 {
+		return r.GetFaqByCode(ctx, code)
+	}
+
+	setClauses = append(setClauses, "updated_at = NOW()")
+	query := fmt.Sprintf(`
+		UPDATE cms.faq
+		SET %s
+		WHERE code = $1 AND deleted_at IS NULL
+		RETURNING id, code, question, answer, category, sort_order, is_active, created_at, updated_at
+	`, strings.Join(setClauses, ", "))
+
+	err := r.conn().QueryRow(ctx, query, args...).Scan(&f.ID, &f.Code, &f.Question, &f.Answer, &cat, &f.SortOrder, &f.IsActive, &f.CreatedAt, &f.UpdatedAt)
+	if cat.Valid {
+		s := cat.String
+		f.Category = &s
+	}
+	return f, err
+}
+
+func (r *CMSRepository) DeleteFaq(ctx context.Context, code string) error {
+	_, err := r.conn().Exec(ctx, `DELETE FROM cms.faq WHERE code = $1`, code)
+	return err
+}
+
+func (r *CMSRepository) ListFaqsAdmin(ctx context.Context, activeOnly *bool, search string, limit, offset int32) ([]Faq, int, error) {
+	where := `deleted_at IS NULL`
+	var args []any
+	argN := 1
+
+	if activeOnly != nil {
+		if *activeOnly {
+			where += ` AND is_active = TRUE`
+		} else {
+			where += ` AND is_active = FALSE`
+		}
+	}
+	if search != "" {
+		where += fmt.Sprintf(` AND (question ILIKE $%d OR answer ILIKE $%d OR category ILIKE $%d)`, argN, argN, argN)
+		args = append(args, "%"+search+"%")
+		argN++
+	}
+
+	countQuery := `SELECT COUNT(*) FROM cms.faq WHERE ` + where
+	var total int
+	err := r.conn().QueryRow(ctx, countQuery, args...).Scan(&total)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
+	}
+
+	query := fmt.Sprintf(`
+		SELECT id, code, question, answer, category, sort_order, is_active, created_at, updated_at
+		FROM cms.faq WHERE %s ORDER BY sort_order, category, created_at LIMIT $%d OFFSET $%d
+	`, where, argN, argN+1)
+	args = append(args, limit, offset)
+
+	rows, err := r.conn().Query(ctx, query, args...)
+	if err != nil {
+		return nil, 0, err
 	}
 	defer rows.Close()
+
 	var faqs []Faq
 	for rows.Next() {
 		var f Faq
-		if err := rows.Scan(&f.ID, &f.Code, &f.Question, &f.Answer, &f.SortOrder, &f.IsActive, &f.CreatedAt); err != nil {
-			return nil, err
+		var cat pgtype.Text
+		if err := rows.Scan(&f.ID, &f.Code, &f.Question, &f.Answer, &cat, &f.SortOrder, &f.IsActive, &f.CreatedAt, &f.UpdatedAt); err != nil {
+			return nil, 0, err
+		}
+		if cat.Valid {
+			s := cat.String
+			f.Category = &s
 		}
 		faqs = append(faqs, f)
 	}
-	return faqs, nil
+	return faqs, total, rows.Err()
+}
+
+func (r *CMSRepository) ListFaqs(ctx context.Context, activeOnly bool) ([]Faq, error) {
+	faqs, _, err := r.ListFaqsAdmin(ctx, &activeOnly, "", 1000, 0)
+	return faqs, err
 }
 
 func (r *CMSRepository) CreateBanner(ctx context.Context, code, title, imageUrl string, linkUrl *string, position string, sortOrder int, isActive bool) (Banner, error) {

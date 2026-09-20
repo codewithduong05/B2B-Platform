@@ -1,14 +1,8 @@
--- M5 Analytics: pg_cron scheduling and analytics_ro role
--- Assumes analytics schema and functions from 000027 and 000028 are already applied.
+-- M5 Analytics: pg_cron scheduling and table grants for analytics_ro
+-- Assumes analytics schema, tables, functions, and analytics_ro role from 000027 and 000028 are already applied.
 
 -- Enable pg_cron extension
 CREATE EXTENSION IF NOT EXISTS pg_cron;
-
--- Create analytics_ro role with password and resource limits
--- IMPORTANT: Replace 'YOUR_ANALYTICS_RO_PASSWORD' with a strong, secret password.
-CREATE ROLE analytics_ro NOINHERIT LOGIN PASSWORD 'YOUR_ANALYTICS_RO_PASSWORD';
-ALTER ROLE analytics_ro SET statement_timeout = '300s'; -- 5 min query timeout
-ALTER ROLE analytics_ro SET idle_in_transaction_session_timeout = '60s';
 
 -- Schedule each rollup at 02:00 UTC for the previous day
 -- Note: CURRENT_DATE - 1 is used to process data for the day that just completed.

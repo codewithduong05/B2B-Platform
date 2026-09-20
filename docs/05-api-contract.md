@@ -402,6 +402,11 @@ Prefixes are shown relative to `/api/v1`. **A** = authenticated, **S** = staff p
 | POST | `/cms/enquiries` | P | Submit a contact enquiry |
 | GET | `/admin/cms/enquiries` | S | Enquiry list |
 | GET | `/admin/cms/enquiries/{id}` | S | Enquiry detail |
+| GET | `/admin/cms/faqs` | S | FAQ list (paginated, with active filter) |
+| POST | `/admin/cms/faqs` | S | Create a FAQ |
+| GET | `/admin/cms/faqs/{id}` | S | FAQ detail |
+| PUT | `/admin/cms/faqs/{id}` | S | Update a FAQ |
+| DELETE | `/admin/cms/faqs/{id}` | S | Delete a FAQ |
 
 #### Homepage builder contract
 
@@ -776,6 +781,65 @@ The source is determined by the frontend and passed in the request body (optiona
 **Idempotency.** Contact enquiry submission does not use idempotency keys (it is not a financial operation). Each POST creates a new enquiry. Duplicate submissions from the same IP within the rate limit window create multiple enquiries and leads.
 
 **Scope.** This contract covers the public submission and admin retrieval of contact enquiries. Status management (PATCH), manual lead routing, enquiry deletion, and bulk operations are out of scope for this specification (future CMS slice). The CRM lead creation is asynchronous and handled by the CRM module — this contract defines the event contract, not the CRM lead schema.
+
+#### FAQ Admin Contract
+
+FAQs are **curated question-answer pairs** with categories and ordering. They are managed by staff and displayed on the storefront FAQ page (S2.6). The admin interface provides full CRUD with active filtering and sort ordering.
+
+**FAQ object**
+
+```json
+{
+  "code": "faq_abc123",
+  "question": "What are your delivery hours?",
+  "answer": "We deliver 8am–10pm daily.",
+  "category": "Delivery",
+  "sort_order": 1,
+  "is_active": true,
+  "created_at": "2026-09-20T10:00:00Z",
+  "updated_at": "2026-09-20T10:00:00Z"
+}
+```
+
+| Field | Type | Rule |
+|---|---|---|
+| `code` | string | Opaque FAQ identifier. Server-generated (`faq_` prefix). |
+| `question` | string | Required. 1–500 characters. |
+| `answer` | string | Required. 1–2000 characters. |
+| `category` | string | Optional. Free-form category for grouping. 1–100 characters. |
+| `sort_order` | int | Display order. Lower values appear first. Default `0`. |
+| `is_active` | bool | Whether the FAQ is visible on the storefront. Default `true`. |
+| `created_at` | timestamp | FAQ creation time. |
+| `updated_at` | timestamp | Last mutation time. |
+
+**Endpoint detail**
+
+| Endpoint | Behaviour |
+|---|---|
+| `GET /admin/cms/faqs` | Paginated list (offset: `page`/`page_size`, max 100). Filter by `is_active` (`true`/`false`). Search by `q` (matches question, answer, category). Sorted by `sort_order` then `created_at`. |
+| `POST /admin/cms/faqs` | Accepts `{ "question": "...", "answer": "...", "category": "...", "sort_order": 0, "is_active": true }`. Returns `201` with the FAQ object. Generates opaque `faq_` code. |
+| `GET /admin/cms/faqs/{id}` | FAQ detail. Returns the full FAQ object. Returns `404` if not found. |
+| `PUT /admin/cms/faqs/{id}` | Updates the FAQ. Accepts all fields (partial updates allowed). Returns the updated FAQ object. Returns `404` if not found. |
+| `DELETE /admin/cms/faqs/{id}` | Deletes the FAQ. Returns `204`. Returns `404` if not found. |
+
+**Validation**
+
+| Condition | Status | Code |
+|---|---|---|
+| `question` missing or empty | 400 | `invalid_request` |
+| `answer` missing or empty | 400 | `invalid_request` |
+| `question` exceeds 500 characters | 400 | `invalid_request` |
+| `answer` exceeds 2000 characters | 400 | `invalid_request` |
+| `category` exceeds 100 characters | 400 | `invalid_request` |
+| `sort_order` not an integer | 400 | `invalid_request` |
+| Request body not valid JSON | 400 | `invalid_body` |
+| FAQ not found | 404 | `not_found` |
+
+**Category and ordering.** FAQs support a free-form `category` field for grouping on the storefront (e.g., "Delivery", "Returns", "Account"). The `sort_order` controls display order within and across categories. The public endpoint `GET /cms/faqs` returns only active FAQs (`is_active = true`) ordered by `sort_order`, `category`, `created_at`.
+
+**Idempotency.** FAQ create is not idempotent — each POST creates a new FAQ. Update is idempotent for identical payloads (no-op). Delete is idempotent (deleting an already-deleted FAQ returns `404`).
+
+**Scope.** This contract covers FAQ admin CRUD only. The public FAQ endpoint (`GET /cms/faqs`) is defined in the CMS public endpoints table. Category management (dedicated category CRUD) is out of scope for this slice.
 
 ### `suppliers`
 

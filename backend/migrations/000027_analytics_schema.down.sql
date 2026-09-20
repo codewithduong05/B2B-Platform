@@ -1,4 +1,4 @@
--- Rollback M5 Analytics: Analytics schema and rollup tables
+-- Rollback M5 Analytics: Analytics schema, rollup tables, and analytics_ro role
 
 DROP TABLE IF EXISTS analytics.daily_erp_sync_rollup;
 DROP TABLE IF EXISTS analytics.daily_financial_rollup;
@@ -7,3 +7,5 @@ DROP TABLE IF EXISTS analytics.daily_inventory_rollup;
 DROP TABLE IF EXISTS analytics.daily_payment_rollup;
 DROP TABLE IF EXISTS analytics.daily_order_rollup;
 DROP SCHEMA IF EXISTS analytics CASCADE;
+
+DROP ROLE IF EXISTS analytics_ro;
