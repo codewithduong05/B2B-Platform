@@ -137,7 +137,8 @@ func (rt *Router) handleCreateIntent(w http.ResponseWriter, r *http.Request) {
 	rt.writeJSON(w, http.StatusCreated, resp)
 }
 
-func (rt *Router) handleGetIntent(w http.ResponseWriter, r *http.Request) {	code := chi.URLParam(r, "code")
+func (rt *Router) handleGetIntent(w http.ResponseWriter, r *http.Request) {
+	code := chi.URLParam(r, "code")
 	if code == "" {
 		rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "intent code is required")
 		return

@@ -8,7 +8,7 @@
 CREATE SCHEMA IF NOT EXISTS suppliers;
 
 -- Status: applied -> approved. No other transitions in this slice.
-CREATE TABLE suppliers.supplier_profile (
+CREATE TABLE IF NOT EXISTS suppliers.supplier_profile (
     id BIGSERIAL PRIMARY KEY,
     code VARCHAR(26) NOT NULL UNIQUE,
     company_name VARCHAR(255) NOT NULL,
@@ -24,13 +24,13 @@ CREATE TABLE suppliers.supplier_profile (
     deleted_at TIMESTAMPTZ
 );
 
-CREATE INDEX idx_suppliers_profile_code ON suppliers.supplier_profile (code) WHERE deleted_at IS NULL;
-CREATE INDEX idx_suppliers_profile_user ON suppliers.supplier_profile (user_id) WHERE deleted_at IS NULL;
-CREATE INDEX idx_suppliers_profile_status ON suppliers.supplier_profile (status) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_suppliers_profile_code ON suppliers.supplier_profile (code) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_suppliers_profile_user ON suppliers.supplier_profile (user_id) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_suppliers_profile_status ON suppliers.supplier_profile (status) WHERE deleted_at IS NULL;
 
 -- Contracts are immutable rows; PUT mints a new version and deactivates the
 -- previous current one, preserving full history.
-CREATE TABLE suppliers.supplier_contract (
+CREATE TABLE IF NOT EXISTS suppliers.supplier_contract (
     id BIGSERIAL PRIMARY KEY,
     supplier_id BIGINT NOT NULL REFERENCES suppliers.supplier_profile (id) ON DELETE CASCADE,
     version INT NOT NULL CHECK (version > 0),
@@ -44,5 +44,5 @@ CREATE TABLE suppliers.supplier_contract (
     CHECK (valid_to IS NULL OR valid_from IS NULL OR valid_to >= valid_from)
 );
 
-CREATE INDEX idx_suppliers_contract_supplier ON suppliers.supplier_contract (supplier_id);
-CREATE INDEX idx_suppliers_contract_current ON suppliers.supplier_contract (supplier_id) WHERE is_current;
+CREATE INDEX IF NOT EXISTS idx_suppliers_contract_supplier ON suppliers.supplier_contract (supplier_id);
+CREATE INDEX IF NOT EXISTS idx_suppliers_contract_current ON suppliers.supplier_contract (supplier_id) WHERE is_current;

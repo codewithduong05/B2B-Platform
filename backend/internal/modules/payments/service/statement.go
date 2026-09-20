@@ -21,14 +21,14 @@ type StatementLine struct {
 }
 
 type Statement struct {
-	BuyerID          int64           `json:"buyer_id"`
-	Period           string          `json:"period"`
-	OpeningMinor     int64           `json:"opening_minor"`
-	InvoicedMinor    int64           `json:"invoiced_minor"`
-	PaidMinor        int64           `json:"paid_minor"`
-	ClosingMinor     int64           `json:"closing_minor"`
-	Currency         string          `json:"currency"`
-	Lines            []StatementLine `json:"lines"`
+	BuyerID       int64           `json:"buyer_id"`
+	Period        string          `json:"period"`
+	OpeningMinor  int64           `json:"opening_minor"`
+	InvoicedMinor int64           `json:"invoiced_minor"`
+	PaidMinor     int64           `json:"paid_minor"`
+	ClosingMinor  int64           `json:"closing_minor"`
+	Currency      string          `json:"currency"`
+	Lines         []StatementLine `json:"lines"`
 }
 
 func parsePeriod(period string) (time.Time, time.Time, error) {

@@ -21,13 +21,13 @@ var ErrShipmentNotFound = errors.New("shipment not found")
 var ErrInvoiceNotFound = errors.New("invoice not found")
 
 const (
-	ShipmentStatusPreparing  = "preparing"
-	ShipmentStatusShipped    = "shipped"
-	ShipmentStatusDelivered  = "delivered"
-	ShipmentStatusCancelled  = "cancelled"
-	InvoiceStatusDraft       = "draft"
-	InvoiceStatusIssued      = "issued"
-	InvoiceStatusVoid        = "void"
+	ShipmentStatusPreparing = "preparing"
+	ShipmentStatusShipped   = "shipped"
+	ShipmentStatusDelivered = "delivered"
+	ShipmentStatusCancelled = "cancelled"
+	InvoiceStatusDraft      = "draft"
+	InvoiceStatusIssued     = "issued"
+	InvoiceStatusVoid       = "void"
 )
 
 var validShipmentTransitions = map[string][]string{
@@ -292,10 +292,10 @@ func (s *CommerceService) UpdateShipment(ctx context.Context, actor int64, shipm
 
 func (s *CommerceService) toShipmentResponse(sh repository.Shipment, lines []repository.ShipmentLine, ordered map[int64]repository.OrderLine) schema.ShipmentResponse {
 	resp := schema.ShipmentResponse{
-		Code:         sh.Code,
-		Status:       sh.Status,
-		CreatedAt:    sh.CreatedAt,
-		UpdatedAt:    sh.UpdatedAt,
+		Code:      sh.Code,
+		Status:    sh.Status,
+		CreatedAt: sh.CreatedAt,
+		UpdatedAt: sh.UpdatedAt,
 	}
 	if sh.Carrier != nil {
 		resp.Carrier = *sh.Carrier

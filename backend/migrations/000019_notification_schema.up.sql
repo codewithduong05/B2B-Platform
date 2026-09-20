@@ -3,7 +3,7 @@
 -- Notification templates define reusable message formats for email and SMS.
 -- Notification records track individual deliveries with status and metadata.
 
-CREATE TABLE platform.notification_template (
+CREATE TABLE IF NOT EXISTS platform.notification_template (
     id BIGSERIAL PRIMARY KEY,
     code VARCHAR(50) NOT NULL UNIQUE,
     name VARCHAR(200) NOT NULL,
@@ -18,10 +18,10 @@ CREATE TABLE platform.notification_template (
     deleted_at TIMESTAMPTZ
 );
 
-CREATE INDEX idx_notification_template_code ON platform.notification_template (code) WHERE deleted_at IS NULL;
-CREATE INDEX idx_notification_template_channel ON platform.notification_template (channel) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_notification_template_code ON platform.notification_template (code) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_notification_template_channel ON platform.notification_template (channel) WHERE deleted_at IS NULL;
 
-CREATE TABLE platform.notification (
+CREATE TABLE IF NOT EXISTS platform.notification (
     id BIGSERIAL PRIMARY KEY,
     code VARCHAR(26) NOT NULL UNIQUE,
     template_id BIGINT REFERENCES platform.notification_template (id) ON DELETE RESTRICT,
@@ -45,12 +45,12 @@ CREATE TABLE platform.notification (
     deleted_at TIMESTAMPTZ
 );
 
-CREATE INDEX idx_notification_recipient ON platform.notification (recipient_type, recipient_id) WHERE deleted_at IS NULL;
-CREATE INDEX idx_notification_status ON platform.notification (status) WHERE deleted_at IS NULL;
-CREATE INDEX idx_notification_template ON platform.notification (template_id) WHERE deleted_at IS NULL;
-CREATE INDEX idx_notification_created ON platform.notification (created_at DESC) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_notification_recipient ON platform.notification (recipient_type, recipient_id) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_notification_status ON platform.notification (status) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_notification_template ON platform.notification (template_id) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_notification_created ON platform.notification (created_at DESC) WHERE deleted_at IS NULL;
 
-CREATE TABLE platform.notification_event (
+CREATE TABLE IF NOT EXISTS platform.notification_event (
     id BIGSERIAL PRIMARY KEY,
     notification_id BIGINT NOT NULL REFERENCES platform.notification (id) ON DELETE CASCADE,
     event_type VARCHAR(30) NOT NULL CHECK (event_type IN ('created', 'sent', 'delivered', 'failed', 'bounced', 'retry')),
@@ -59,5 +59,5 @@ CREATE TABLE platform.notification_event (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_notification_event_notification ON platform.notification_event (notification_id);
-CREATE INDEX idx_notification_event_type ON platform.notification_event (event_type);
+CREATE INDEX IF NOT EXISTS idx_notification_event_notification ON platform.notification_event (notification_id);
+CREATE INDEX IF NOT EXISTS idx_notification_event_type ON platform.notification_event (event_type);

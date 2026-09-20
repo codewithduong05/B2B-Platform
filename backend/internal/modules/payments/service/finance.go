@@ -191,12 +191,12 @@ func (s *PaymentService) GetRefund(ctx context.Context, refundID int64) (*schema
 // (issued totals minus issued balances); SucceededTotal sums succeeded
 // intents. Matched means every captured unit is accounted for on invoices.
 type ReconRow struct {
-	OrderID         int64
-	OrderCode       string
-	InvoicedTotal   int64
-	PaidApplied     int64
-	SucceededTotal  int64
-	Unmatched       bool
+	OrderID        int64
+	OrderCode      string
+	InvoicedTotal  int64
+	PaidApplied    int64
+	SucceededTotal int64
+	Unmatched      bool
 }
 
 // Reconcile builds the admin reconciliation view: per-order money rows plus

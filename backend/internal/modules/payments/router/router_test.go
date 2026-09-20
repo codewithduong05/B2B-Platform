@@ -25,8 +25,8 @@ import (
 	inventory_service "github.com/atlas-platform/backend/internal/modules/inventory/service"
 	"github.com/atlas-platform/backend/internal/modules/payments"
 	payments_router "github.com/atlas-platform/backend/internal/modules/payments/router"
-	payments_service "github.com/atlas-platform/backend/internal/modules/payments/service"
 	payments_schema "github.com/atlas-platform/backend/internal/modules/payments/schema"
+	payments_service "github.com/atlas-platform/backend/internal/modules/payments/service"
 	pricing_service "github.com/atlas-platform/backend/internal/modules/pricing/service"
 	promotions_service "github.com/atlas-platform/backend/internal/modules/promotions/service"
 	"github.com/go-chi/chi/v5"
@@ -416,7 +416,8 @@ func TestPayments_IntentIdempotency(t *testing.T) {
 	}
 }
 
-func TestPayments_FailAndRBAC(t *testing.T) {	env := setupPayEnv(t, 0, map[int64]bool{})
+func TestPayments_FailAndRBAC(t *testing.T) {
+	env := setupPayEnv(t, 0, map[int64]bool{})
 	buyerID := payBuyer(t, env)
 	staff := map[int64]bool{999002: true}
 	prodCode, productID, supplierID := payProduct(t, env)

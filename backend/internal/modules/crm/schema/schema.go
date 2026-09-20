@@ -19,10 +19,10 @@ type CreatePartnerRequest struct {
 }
 
 type ReferralResponse struct {
-	Code      string `json:"code"`
-	PartnerID int64  `json:"partner_id"`
-	IsActive  bool   `json:"is_active"`
-	Uses      int    `json:"uses"`
+	Code      string    `json:"code"`
+	PartnerID int64     `json:"partner_id"`
+	IsActive  bool      `json:"is_active"`
+	Uses      int       `json:"uses"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -32,20 +32,20 @@ type CreateReferralRequest struct {
 }
 
 type LeadResponse struct {
-	Code        string    `json:"code"`
-	ContactName string    `json:"contact_name"`
-	BusinessName string   `json:"business_name"`
-	Email       string    `json:"email,omitempty"`
-	Phone       string    `json:"phone,omitempty"`
-	Message     string    `json:"message,omitempty"`
-	Status      string    `json:"status"`
-	PartnerID   *int64    `json:"partner_id,omitempty"`
-	ReferralID  *int64    `json:"referral_id,omitempty"`
-	AssignedTo  *int64    `json:"assigned_to,omitempty"`
-	BuyerID     *int64    `json:"buyer_id,omitempty"`
-	Notes       string    `json:"notes,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	Code         string    `json:"code"`
+	ContactName  string    `json:"contact_name"`
+	BusinessName string    `json:"business_name"`
+	Email        string    `json:"email,omitempty"`
+	Phone        string    `json:"phone,omitempty"`
+	Message      string    `json:"message,omitempty"`
+	Status       string    `json:"status"`
+	PartnerID    *int64    `json:"partner_id,omitempty"`
+	ReferralID   *int64    `json:"referral_id,omitempty"`
+	AssignedTo   *int64    `json:"assigned_to,omitempty"`
+	BuyerID      *int64    `json:"buyer_id,omitempty"`
+	Notes        string    `json:"notes,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 type SubmitLeadRequest struct {

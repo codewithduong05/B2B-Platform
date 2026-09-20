@@ -26,11 +26,11 @@ type Envelope struct {
 }
 
 type IntentPayload struct {
-	IntentCode string `json:"intent_code"`
-	BuyerID    int64  `json:"buyer_id"`
-	OrderCode  string `json:"order_code"`
-	AmountMinor int64 `json:"amount_minor"`
-	Currency   string `json:"currency"`
+	IntentCode  string `json:"intent_code"`
+	BuyerID     int64  `json:"buyer_id"`
+	OrderCode   string `json:"order_code"`
+	AmountMinor int64  `json:"amount_minor"`
+	Currency    string `json:"currency"`
 }
 
 type RefundPayload struct {

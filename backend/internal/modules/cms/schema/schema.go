@@ -235,13 +235,13 @@ type LegalDocument struct {
 }
 
 type LegalDocumentDraft struct {
-	DocType        string     `json:"doc_type"`
-	Title          string     `json:"title"`
-	Body           string     `json:"body"`
-	BodyFormat     string     `json:"body_format"`
-	EffectiveAt    *time.Time `json:"effective_at,omitempty"`
-	UpdatedAt      time.Time  `json:"updated_at"`
-	UpdatedBy      *string    `json:"updated_by,omitempty"`
+	DocType     string     `json:"doc_type"`
+	Title       string     `json:"title"`
+	Body        string     `json:"body"`
+	BodyFormat  string     `json:"body_format"`
+	EffectiveAt *time.Time `json:"effective_at,omitempty"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+	UpdatedBy   *string    `json:"updated_by,omitempty"`
 }
 
 type LegalDocumentVersion struct {
@@ -259,8 +259,8 @@ type LegalDocumentVersion struct {
 
 type LegalDocumentDetail struct {
 	LegalDocument
-	Draft    *LegalDocumentDraft            `json:"draft,omitempty"`
-	Versions []LegalDocumentVersionSummary  `json:"versions,omitempty"`
+	Draft    *LegalDocumentDraft           `json:"draft,omitempty"`
+	Versions []LegalDocumentVersionSummary `json:"versions,omitempty"`
 }
 
 type LegalDocumentVersionSummary struct {

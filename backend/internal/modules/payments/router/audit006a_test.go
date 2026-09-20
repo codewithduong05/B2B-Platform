@@ -11,8 +11,8 @@ import (
 	"sync"
 	"testing"
 
-	payments_service "github.com/atlas-platform/backend/internal/modules/payments/service"
 	payments_schema "github.com/atlas-platform/backend/internal/modules/payments/schema"
+	payments_service "github.com/atlas-platform/backend/internal/modules/payments/service"
 )
 
 type recordingPayPublisher struct {

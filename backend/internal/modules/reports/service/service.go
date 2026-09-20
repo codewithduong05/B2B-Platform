@@ -329,6 +329,7 @@ func (s *ReportsService) ListExportJobs(ctx context.Context, status string, limi
 			Format:      j.Format,
 			DownloadUrl: j.DownloadUrl,
 			CreatedAt:   j.CreatedAt,
+			StatusUrl:   ExportStatusUrl,
 		})
 	}
 	return out, total, nil
@@ -394,6 +395,7 @@ func (s *ReportsService) CreateExportJob(ctx context.Context, req schema.CreateE
 		Format:      job.Format,
 		DownloadUrl: job.DownloadUrl,
 		CreatedAt:   job.CreatedAt,
+		StatusUrl:   ExportStatusUrl,
 	}, nil
 }
 
@@ -409,5 +411,6 @@ func (s *ReportsService) GetExportJobByCode(ctx context.Context, code string) (*
 		Format:      job.Format,
 		DownloadUrl: job.DownloadUrl,
 		CreatedAt:   job.CreatedAt,
+		StatusUrl:   ExportStatusUrl,
 	}, nil
 }

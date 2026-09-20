@@ -52,11 +52,11 @@ type EventPublisher interface {
 }
 
 type PaymentService struct {
-	db              *database.DB
-	repo            *repository.PaymentRepository
-	commerceSvc     *commerce_service.CommerceService
-	publisher       EventPublisher
-	webhookSecrets  map[string]string
+	db             *database.DB
+	repo           *repository.PaymentRepository
+	commerceSvc    *commerce_service.CommerceService
+	publisher      EventPublisher
+	webhookSecrets map[string]string
 }
 
 func NewPaymentService(

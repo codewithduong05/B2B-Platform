@@ -19,15 +19,15 @@ type CreateIntentRequest struct {
 }
 
 type IntentResponse struct {
-	Code         string            `json:"code"`
-	OrderCode    string            `json:"order_code"`
-	AmountMinor  int64             `json:"amount_minor"`
-	Currency     string            `json:"currency"`
-	MethodCode   *string           `json:"method_code,omitempty"`
-	Status       string            `json:"status"`
-	Attempts     []AttemptResponse `json:"attempts,omitempty"`
-	CreatedAt    time.Time         `json:"created_at"`
-	UpdatedAt    time.Time         `json:"updated_at"`
+	Code        string            `json:"code"`
+	OrderCode   string            `json:"order_code"`
+	AmountMinor int64             `json:"amount_minor"`
+	Currency    string            `json:"currency"`
+	MethodCode  *string           `json:"method_code,omitempty"`
+	Status      string            `json:"status"`
+	Attempts    []AttemptResponse `json:"attempts,omitempty"`
+	CreatedAt   time.Time         `json:"created_at"`
+	UpdatedAt   time.Time         `json:"updated_at"`
 }
 
 type AttemptResponse struct {

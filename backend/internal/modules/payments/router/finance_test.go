@@ -209,7 +209,8 @@ func TestWebhook_ConcurrentDuplicates(t *testing.T) {
 	}
 }
 
-func TestRefund_ThresholdAndFlow(t *testing.T) {	env := webhookEnv(t, 0, map[int64]bool{})
+func TestRefund_ThresholdAndFlow(t *testing.T) {
+	env := webhookEnv(t, 0, map[int64]bool{})
 	buyerID := payBuyer(t, env)
 	staffA, staffB := payBuyer(t, env), payBuyer(t, env)
 	staff := map[int64]bool{staffA: true, staffB: true}
@@ -495,7 +496,8 @@ func TestReconciliation_Buckets(t *testing.T) {
 	_ = orderCode
 }
 
-func TestCredit_AccountAndCheckoutGate(t *testing.T) {	env := webhookEnv(t, 0, map[int64]bool{})
+func TestCredit_AccountAndCheckoutGate(t *testing.T) {
+	env := webhookEnv(t, 0, map[int64]bool{})
 	buyerID := payBuyer(t, env)
 	staff := map[int64]bool{888002: true}
 	buyerEnv := setupPayEnv(t, buyerID, staff)
@@ -603,12 +605,12 @@ func TestStatements_BuyerAndAdmin(t *testing.T) {
 		t.Fatalf("buyer statement: %d: %s", resp.StatusCode, string(body))
 	}
 	var stmt struct {
-		BuyerID      int64 `json:"buyer_id"`
-		OpeningMinor int64 `json:"opening_minor"`
+		BuyerID       int64 `json:"buyer_id"`
+		OpeningMinor  int64 `json:"opening_minor"`
 		InvoicedMinor int64 `json:"invoiced_minor"`
-		PaidMinor    int64 `json:"paid_minor"`
-		ClosingMinor int64 `json:"closing_minor"`
-		Lines        []struct {
+		PaidMinor     int64 `json:"paid_minor"`
+		ClosingMinor  int64 `json:"closing_minor"`
+		Lines         []struct {
 			Kind   string `json:"kind"`
 			Amount int64  `json:"amount_minor"`
 		} `json:"lines"`

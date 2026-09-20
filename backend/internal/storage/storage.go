@@ -20,8 +20,8 @@ type Storage interface {
 }
 
 type LocalStorage struct {
-	rootDir  string
-	baseURL  string
+	rootDir string
+	baseURL string
 }
 
 func NewLocalStorage(rootDir, baseURL string) (*LocalStorage, error) {
@@ -41,7 +41,7 @@ func (s *LocalStorage) Put(ctx context.Context, key string, data io.Reader) (str
 		return "", 0, "", fmt.Errorf("invalid key: path traversal detected")
 	}
 	path := filepath.Join(s.rootDir, cleanKey)
-	
+
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return "", 0, "", fmt.Errorf("resolve path: %w", err)
