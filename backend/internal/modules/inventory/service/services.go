@@ -23,7 +23,7 @@ var (
 	ErrLotQuarantined      = errors.New("lot is quarantined")
 	ErrInvalidQuantity     = errors.New("invalid quantity")
 	ErrDuplicateRequest    = errors.New("duplicate request key")
-	ErrInvalidInput         = errors.New("invalid input")
+	ErrInvalidInput        = errors.New("invalid input")
 )
 
 type EventPublisher interface {
@@ -644,7 +644,7 @@ func (s *InventoryService) PushSupplierStock(ctx context.Context, productID, sup
 // ReleaseLot releases a quarantined lot, restoring its available quantity
 func (s *InventoryService) ReleaseLot(ctx context.Context, req schema.ReleaseLotRequest) (*schema.LotSummary, error) {
 	var restoredQty int32
-	var updatedLot *inventory.InventoryLot
+	var updatedLot inventory.InventoryLot
 
 	err := s.db.WithTx(ctx, func(tx *database.Tx) error {
 		txRepo := repo.NewInventoryRepositoryWithTx(tx)
@@ -678,7 +678,7 @@ func (s *InventoryService) ReleaseLot(ctx context.Context, req schema.ReleaseLot
 		}
 
 		// Update quarantine record status
-		err = txRepo.UpdateQuarantineRecordStatus(ctx, qr.ID, restoredQty)
+		_, err = txRepo.UpdateQuarantineRecordStatus(ctx, qr.ID, restoredQty)
 		if err != nil {
 			return fmt.Errorf("update quarantine record: %w", err)
 		}
@@ -774,13 +774,14 @@ func (s *InventoryService) AdjustStock(ctx context.Context, req schema.AdjustSto
 		}
 
 		// Update lot quantities
-		_, err := txRepo.AdjustLotQuantities(ctx, req.LotID, req.QuantityDelta)
+		_, err = txRepo.AdjustLotQuantities(ctx, req.LotID, req.QuantityDelta)
 		if err != nil {
 			return fmt.Errorf("adjust lot quantities: %w", err)
 		}
 
 		// Update stock level
-		sl, err := txRepo.GetStockLevelByID(ctx, lot.StockLevelID)
+		var sl inventory.InventoryStockLevel
+		sl, err = txRepo.GetStockLevelByID(ctx, lot.StockLevelID)
 		if err == nil && sl.ID != 0 {
 			newAvail := sl.AvailableQuantity + req.QuantityDelta
 			if newAvail < 0 {
@@ -894,5 +895,3 @@ func toStockAdjustmentSummary(r repo.CreateStockAdjustmentRow) schema.StockAdjus
 		AdjustedAt:       r.CreatedAt,
 	}
 }
-
-

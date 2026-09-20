@@ -92,21 +92,21 @@ type LowStockLotSummary struct {
 }
 
 type ExpiringLotSummary struct {
-	ID                int64      `json:"id"`
-	Code              string     `json:"code"`
-	StockLevelID      int64      `json:"stock_level_id"`
-	LotNumber         string     `json:"lot_number"`
-	ProductID         int64      `json:"product_id"`
-	ProductCode       string     `json:"product_code"`
-	ProductName       string     `json:"product_name"`
-	SupplierID        int64      `json:"supplier_id"`
-	SupplierCode      string     `json:"supplier_code"`
-	AvailableQuantity int32      `json:"available_quantity"`
-	ReservedQuantity  int32      `json:"reserved_quantity"`
-	ExpiresAt         time.Time  `json:"expires_at"`
-	DaysUntilExpiry   int        `json:"days_until_expiry"`
-	CreatedAt         time.Time  `json:"created_at"`
-	UpdatedAt         time.Time  `json:"updated_at"`
+	ID                int64     `json:"id"`
+	Code              string    `json:"code"`
+	StockLevelID      int64     `json:"stock_level_id"`
+	LotNumber         string    `json:"lot_number"`
+	ProductID         int64     `json:"product_id"`
+	ProductCode       string    `json:"product_code"`
+	ProductName       string    `json:"product_name"`
+	SupplierID        int64     `json:"supplier_id"`
+	SupplierCode      string    `json:"supplier_code"`
+	AvailableQuantity int32     `json:"available_quantity"`
+	ReservedQuantity  int32     `json:"reserved_quantity"`
+	ExpiresAt         time.Time `json:"expires_at"`
+	DaysUntilExpiry   int       `json:"days_until_expiry"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
 }
 
 type AdjustStockRequest struct {
@@ -117,15 +117,15 @@ type AdjustStockRequest struct {
 }
 
 type StockAdjustmentSummary struct {
-	ID               int64      `json:"id"`
-	LotID            int64      `json:"lot_id"`
-	LotCode          string     `json:"lot_code"`
-	LotNumber        string     `json:"lot_number"`
-	QuantityDelta    int32      `json:"quantity_delta"`
-	PreviousQuantity int32      `json:"previous_quantity"`
-	NewQuantity      int32      `json:"new_quantity"`
-	ReasonCode       string     `json:"reason_code"`
-	Reason           string     `json:"reason"`
-	AdjustedBy       int64      `json:"adjusted_by"`
-	AdjustedAt       time.Time  `json:"adjusted_at"`
+	ID               int64     `json:"id"`
+	LotID            int64     `json:"lot_id"`
+	LotCode          string    `json:"lot_code"`
+	LotNumber        string    `json:"lot_number"`
+	QuantityDelta    int32     `json:"quantity_delta"`
+	PreviousQuantity int32     `json:"previous_quantity"`
+	NewQuantity      int32     `json:"new_quantity"`
+	ReasonCode       string    `json:"reason_code"`
+	Reason           string    `json:"reason"`
+	AdjustedBy       int64     `json:"adjusted_by"`
+	AdjustedAt       time.Time `json:"adjusted_at"`
 }

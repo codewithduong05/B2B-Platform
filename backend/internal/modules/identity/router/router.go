@@ -26,16 +26,16 @@ func PrincipalIDFromContext(ctx context.Context) int64 {
 }
 
 type Router struct {
-	router  chi.Router
-	service *service.AuthService
+	router   chi.Router
+	service  *service.AuthService
 	buyerSvc *service.BuyerService
 	adminSvc *service.AdminService
 }
 
 func New(authSvc *service.AuthService, buyerSvc *service.BuyerService, adminSvc *service.AdminService) *Router {
 	return &Router{
-		router:  chi.NewRouter(),
-		service: authSvc,
+		router:   chi.NewRouter(),
+		service:  authSvc,
 		buyerSvc: buyerSvc,
 		adminSvc: adminSvc,
 	}

@@ -291,9 +291,9 @@ func (r *VerificationRepository) UpdateVerificationApplicationStatus(ctx context
 		decidedByVal = pgtype.Int8{Int64: decidedBy, Valid: true}
 	}
 	return r.q.UpdateVerificationApplicationStatus(ctx, identity.UpdateVerificationApplicationStatusParams{
-		ID:      id,
-		Status:  identity.IdentityVerificationStatus(status),
-		DecidedBy: decidedByVal,
+		ID:             id,
+		Status:         identity.IdentityVerificationStatus(status),
+		DecidedBy:      decidedByVal,
 		DecisionReason: pgtype.Text{String: reason, Valid: true},
 	})
 }

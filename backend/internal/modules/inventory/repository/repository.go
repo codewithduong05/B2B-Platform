@@ -2,11 +2,11 @@ package repository
 
 import (
 	"context"
-			"time"
+	"time"
 
 	"github.com/atlas-platform/backend/internal/database"
 	"github.com/atlas-platform/backend/internal/database/queries/inventory"
-		"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // Local types for new query results

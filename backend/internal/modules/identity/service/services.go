@@ -717,12 +717,12 @@ func (s *BuyerService) toAddressResponseFromIdentity(addr identity.IdentityAddre
 // ==================== AdminService ====================
 
 type AdminService struct {
-	userRepo          *repository.UserRepository
-	buyerRepo         *repository.BuyerProfileRepository
-	verificationRepo  *repository.VerificationRepository
-	roleRepo          *repository.RoleRepository
-	refreshTokenRepo  *repository.RefreshTokenRepository
-	sessionRepo       *repository.SessionRepository
+	userRepo         *repository.UserRepository
+	buyerRepo        *repository.BuyerProfileRepository
+	verificationRepo *repository.VerificationRepository
+	roleRepo         *repository.RoleRepository
+	refreshTokenRepo *repository.RefreshTokenRepository
+	sessionRepo      *repository.SessionRepository
 }
 
 func NewAdminService() *AdminService { return &AdminService{} }
@@ -950,14 +950,14 @@ func (s *AdminService) toAdminUserResponse(u identity.ListUsersRow) schema.Admin
 		lastLoginAt = &t
 	}
 	return schema.AdminUserResponse{
-		ID:         u.ID,
-		Code:       u.Code,
-		Email:      u.Email,
-		UserType:   string(u.UserType),
-		IsActive:   u.IsActive,
-		IsVerified: u.IsVerified,
+		ID:          u.ID,
+		Code:        u.Code,
+		Email:       u.Email,
+		UserType:    string(u.UserType),
+		IsActive:    u.IsActive,
+		IsVerified:  u.IsVerified,
 		LastLoginAt: lastLoginAt,
-		CreatedAt:  u.CreatedAt,
+		CreatedAt:   u.CreatedAt,
 	}
 }
 
@@ -980,14 +980,14 @@ func (s *AdminService) toAdminUserResponseFromUser(u identity.IdentityUser) *sch
 		lastLoginAt = &t
 	}
 	return &schema.AdminUserResponse{
-		ID:         u.ID,
-		Code:       u.Code,
-		Email:      u.Email,
-		UserType:   string(u.UserType),
-		IsActive:   u.IsActive,
-		IsVerified: u.IsVerified,
+		ID:          u.ID,
+		Code:        u.Code,
+		Email:       u.Email,
+		UserType:    string(u.UserType),
+		IsActive:    u.IsActive,
+		IsVerified:  u.IsVerified,
 		LastLoginAt: lastLoginAt,
-		CreatedAt:  u.CreatedAt,
+		CreatedAt:   u.CreatedAt,
 	}
 }
 
@@ -998,14 +998,14 @@ func (s *AdminService) toVerificationResponse(v identity.ListVerificationApplica
 		decidedAt = &t
 	}
 	return schema.VerificationApplicationResponse{
-		Code:           v.Code,
-		Status:         string(v.Status),
-		SubmittedAt:    v.SubmittedAt,
-		DecidedAt:      decidedAt,
-		DecisionReason: v.DecisionReason.String,
+		Code:            v.Code,
+		Status:          string(v.Status),
+		SubmittedAt:     v.SubmittedAt,
+		DecidedAt:       decidedAt,
+		DecisionReason:  v.DecisionReason.String,
 		RejectionReason: v.RejectionReason.String,
-		CreatedAt:      v.CreatedAt,
-		UpdatedAt:      v.UpdatedAt,
+		CreatedAt:       v.CreatedAt,
+		UpdatedAt:       v.UpdatedAt,
 	}
 }
 
@@ -1016,13 +1016,13 @@ func (s *AdminService) toVerificationResponseFromIdentity(v identity.IdentityVer
 		decidedAt = &t
 	}
 	return &schema.VerificationApplicationResponse{
-		Code:           v.Code,
-		Status:         string(v.Status),
-		SubmittedAt:    v.SubmittedAt,
-		DecidedAt:      decidedAt,
-		DecisionReason: v.DecisionReason.String,
+		Code:            v.Code,
+		Status:          string(v.Status),
+		SubmittedAt:     v.SubmittedAt,
+		DecidedAt:       decidedAt,
+		DecisionReason:  v.DecisionReason.String,
 		RejectionReason: v.RejectionReason.String,
-		CreatedAt:      v.CreatedAt,
-		UpdatedAt:      v.UpdatedAt,
+		CreatedAt:       v.CreatedAt,
+		UpdatedAt:       v.UpdatedAt,
 	}
 }
