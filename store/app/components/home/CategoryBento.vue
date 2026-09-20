@@ -1,0 +1,175 @@
+<script setup lang="ts">
+const categories = [
+  {
+    title: 'Industrial Supplies',
+    desc: 'Pneumatics, hydraulics, bearings, and drive automation components.',
+    path: '/catalog/industrial',
+    icon: 'settings',
+    count: '418 products',
+  },
+  {
+    title: 'Electrical & Automation',
+    desc: 'PLCs, VFDs, sensors, cable management, and control systems.',
+    path: '/catalog/electrical',
+    icon: 'bolt',
+    count: '312 products',
+  },
+  {
+    title: 'Safety & PPE',
+    desc: 'Personal protective equipment, gas detection, and safety signage.',
+    path: '/catalog/safety',
+    icon: 'health_and_safety',
+    count: '186 products',
+  },
+  {
+    title: 'Packaging & Logistics',
+    desc: 'Industrial packaging, palletizing, labels, and shipping supplies.',
+    path: '/catalog/packaging',
+    icon: 'local_shipping',
+    count: '94 products',
+  },
+  {
+    title: 'Facility & Maintenance',
+    desc: 'HVAC, plumbing, janitorial, and general facility upkeep.',
+    path: '/catalog/facility',
+    icon: 'home_repair_service',
+    count: '227 products',
+  },
+  {
+    title: 'Raw Materials',
+    desc: 'Metals, polymers, chemicals, and bulk commodity stock.',
+    path: '/catalog/raw-materials',
+    icon: 'inventory_2',
+    count: '153 products',
+  },
+]
+</script>
+
+<template>
+  <section class="category-section">
+    <div class="category-header">
+      <h2 class="section-title">Browse by Category</h2>
+      <a href="/catalog" class="category-explore-link">
+        Explore All
+        <span class="material-symbols-outlined">arrow_forward</span>
+      </a>
+    </div>
+    <div class="category-grid">
+      <a v-for="cat in categories" :key="cat.path" :href="cat.path" class="category-card">
+        <div class="category-card-img">
+          <span class="material-symbols-outlined category-card-icon">{{ cat.icon }}</span>
+        </div>
+        <div class="category-card-body">
+          <h3 class="category-card-title">{{ cat.title }}</h3>
+          <p class="category-card-desc">{{ cat.desc }}</p>
+          <span class="category-card-count">{{ cat.count }}</span>
+        </div>
+      </a>
+    </div>
+  </section>
+</template>
+
+<style scoped>
+.category-section {
+  margin-bottom: var(--space-xl);
+}
+
+.category-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-lg);
+}
+
+.section-title {
+  font-size: var(--text-headline-md);
+  font-weight: 700;
+  color: var(--on-surface);
+  letter-spacing: var(--tracking-headline-md);
+  margin: 0;
+}
+
+.category-explore-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--text-label-md);
+  font-weight: 600;
+  color: var(--secondary);
+  text-decoration: none;
+}
+
+.category-explore-link:hover {
+  color: var(--accent-hover);
+}
+
+.category-explore-link .material-symbols-outlined {
+  font-size: 18px;
+}
+
+.category-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-lg);
+}
+
+.category-card {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  text-decoration: none;
+  transition: box-shadow 0.15s ease;
+}
+
+.category-card:hover {
+  box-shadow: var(--shadow-2);
+}
+
+.category-card-img {
+  height: 176px;
+  background-color: var(--surface-container-low);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.category-card-icon {
+  font-size: 48px;
+  color: var(--secondary);
+  opacity: 0.6;
+}
+
+.category-card-body {
+  padding: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.category-card-title {
+  font-size: var(--text-headline-sm);
+  font-weight: 700;
+  color: var(--on-surface);
+  margin: 0;
+}
+
+.category-card-desc {
+  margin: 0;
+  font-size: var(--text-body-sm);
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.category-card-count {
+  font-size: var(--text-label-sm);
+  font-weight: 500;
+  color: var(--secondary);
+}
+
+@media (max-width: 768px) {
+  .category-grid {
+    grid-template-columns: 1fr;
+  }
+}
+</style>
