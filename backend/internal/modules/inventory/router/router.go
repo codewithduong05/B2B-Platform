@@ -59,6 +59,10 @@ func (rt *Router) RegisterRoutes(authMiddleware, adminMiddleware func(http.Handl
 
 		if adminMiddleware != nil {
 			r.With(adminMiddleware).Post("/lots/{id}/quarantine", rt.handleQuarantineLot)
+			r.With(adminMiddleware).Post("/lots/{id}/release", rt.handleReleaseLot)
+			r.With(adminMiddleware).Get("/low-stock", rt.handleListLowStock)
+			r.With(adminMiddleware).Get("/expiring", rt.handleListExpiring)
+			r.With(adminMiddleware).Post("/adjust", rt.handleAdjustStock)
 		} else {
 			r.Post("/lots/{id}/quarantine", rt.handleQuarantineLot)
 		}
@@ -288,4 +292,116 @@ func (rt *Router) writeError(w http.ResponseWriter, r *http.Request, status int,
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(body)
+}
+
+// handleReleaseLot releases a quarantined lot
+func (rt *Router) handleReleaseLot(w http.ResponseWriter, r *http.Request) {
+	lotID, ok := rt.parsePositiveID(w, r, chi.URLParam(r, "id"))
+	if !ok {
+		return
+	}
+
+	var req schema.ReleaseLotRequest
+	if err := rt.decodeBody(r, &req); err != nil {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_body", "invalid request body")
+		return
+	}
+	if strings.TrimSpace(req.Reason) == "" {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_body", "reason is required")
+		return
+	}
+
+	req.LotID = lotID
+	lot, err := rt.service.ReleaseLot(r.Context(), req)
+	if err != nil {
+		if err == service.ErrLotNotFound {
+			rt.writeError(w, r, http.StatusNotFound, "lot_not_found", "lot not found or not quarantined")
+			return
+		}
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", "failed to release lot")
+		return
+	}
+
+	rt.writeJSON(w, http.StatusOK, lot)
+}
+
+// handleListLowStock returns lots below their safety stock threshold
+func (rt *Router) handleListLowStock(w http.ResponseWriter, r *http.Request) {
+	summaries, err := rt.service.ListLowStockLots(r.Context())
+	if err != nil {
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", "failed to list low stock lots")
+		return
+	}
+	if summaries == nil {
+		summaries = []schema.LowStockLotSummary{}
+	}
+	rt.writeJSON(w, http.StatusOK, summaries)
+}
+
+// handleListExpiring returns lots expiring within the given horizon
+func (rt *Router) handleListExpiring(w http.ResponseWriter, r *http.Request) {
+	var horizonDays *int32
+	if raw := r.URL.Query().Get("horizon_days"); raw != "" {
+		if d, err := strconv.Atoi(raw); err == nil && d > 0 {
+			d32 := int32(d)
+			horizonDays = &d32
+		}
+	}
+
+	summaries, err := rt.service.ListExpiringLots(r.Context(), horizonDays)
+	if err != nil {
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", "failed to list expiring lots")
+		return
+	}
+	if summaries == nil {
+		summaries = []schema.ExpiringLotSummary{}
+	}
+	rt.writeJSON(w, http.StatusOK, summaries)
+}
+
+// handleAdjustStock adjusts stock quantity for a lot
+func (rt *Router) handleAdjustStock(w http.ResponseWriter, r *http.Request) {
+	var req schema.AdjustStockRequest
+	if err := rt.decodeBody(r, &req); err != nil {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_body", "invalid request body")
+		return
+	}
+
+	if req.QuantityDelta == 0 {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_quantity", "quantity_delta must not be zero")
+		return
+	}
+	if strings.TrimSpace(req.ReasonCode) == "" || strings.TrimSpace(req.Reason) == "" {
+		rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "reason_code and reason are required")
+		return
+	}
+
+	userID := PrincipalIDFromContext(r.Context())
+	adjustment, err := rt.service.AdjustStock(r.Context(), req, userID)
+	if err != nil {
+		if err == service.ErrInvalidQuantity {
+			rt.writeError(w, r, http.StatusBadRequest, "invalid_quantity", "quantity_delta must not be zero")
+			return
+		}
+		if err == service.ErrInvalidInput {
+			rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "reason_code and reason are required")
+			return
+		}
+		if err == service.ErrLotNotFound {
+			rt.writeError(w, r, http.StatusNotFound, "lot_not_found", "lot not found")
+			return
+		}
+		if err == service.ErrLotQuarantined {
+			rt.writeError(w, r, http.StatusConflict, "lot_quarantined", "lot is quarantined")
+			return
+		}
+		if err == service.ErrInvalidInput {
+			rt.writeError(w, r, http.StatusBadRequest, "invalid_request", "reason_code and reason are required")
+			return
+		}
+		rt.writeError(w, r, http.StatusInternalServerError, "internal", "failed to adjust stock")
+		return
+	}
+
+	rt.writeJSON(w, http.StatusOK, adjustment)
 }

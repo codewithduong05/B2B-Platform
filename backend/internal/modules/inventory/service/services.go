@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/atlas-platform/backend/internal/database"
@@ -22,6 +23,7 @@ var (
 	ErrLotQuarantined      = errors.New("lot is quarantined")
 	ErrInvalidQuantity     = errors.New("invalid quantity")
 	ErrDuplicateRequest    = errors.New("duplicate request key")
+	ErrInvalidInput         = errors.New("invalid input")
 )
 
 type EventPublisher interface {
@@ -638,3 +640,259 @@ func (s *InventoryService) PushSupplierStock(ctx context.Context, productID, sup
 	}
 	return out, nil
 }
+
+// ReleaseLot releases a quarantined lot, restoring its available quantity
+func (s *InventoryService) ReleaseLot(ctx context.Context, req schema.ReleaseLotRequest) (*schema.LotSummary, error) {
+	var restoredQty int32
+	var updatedLot *inventory.InventoryLot
+
+	err := s.db.WithTx(ctx, func(tx *database.Tx) error {
+		txRepo := repo.NewInventoryRepositoryWithTx(tx)
+
+		// Get the quarantine record to know how much was quarantined
+		qr, err := txRepo.GetQuarantineRecordByLot(ctx, req.LotID)
+		if err != nil {
+			return ErrLotNotFound
+		}
+
+		// Get the lot for update
+		lot, err := txRepo.GetLotByIDForUpdate(ctx, req.LotID)
+		if err != nil {
+			return ErrLotNotFound
+		}
+
+		if !lot.IsQuarantined {
+			return ErrLotNotFound // Not quarantined
+		}
+
+		if qr.AdjustedQuantity > 0 {
+			restoredQty = qr.AdjustedQuantity
+		} else {
+			restoredQty = lot.InitialQuantity // fallback
+		}
+
+		// Release the lot
+		updatedLot, err = txRepo.ReleaseLot(ctx, req.LotID, restoredQty)
+		if err != nil {
+			return fmt.Errorf("release lot: %w", err)
+		}
+
+		// Update quarantine record status
+		err = txRepo.UpdateQuarantineRecordStatus(ctx, qr.ID, restoredQty)
+		if err != nil {
+			return fmt.Errorf("update quarantine record: %w", err)
+		}
+
+		// Update stock level
+		sl, err := txRepo.GetStockLevelByID(ctx, lot.StockLevelID)
+		if err == nil && sl.ID != 0 {
+			newSlAvail := sl.AvailableQuantity + restoredQty
+			newSlTotal := sl.TotalQuantity + restoredQty
+			_, _ = txRepo.UpdateStockLevelQuantities(ctx, sl.ID, newSlAvail, sl.ReservedQuantity, newSlTotal)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	if s.publisher != nil {
+		_ = s.publisher.Publish(ctx, "inventory.lot.released", map[string]interface{}{
+			"lot_id":       req.LotID,
+			"reason":       req.Reason,
+			"restored_qty": restoredQty,
+		})
+	}
+
+	sum := toLotSummary(updatedLot)
+	return &sum, nil
+}
+
+// ListLowStockLots returns lots below their safety stock threshold
+func (s *InventoryService) ListLowStockLots(ctx context.Context) ([]schema.LowStockLotSummary, error) {
+	rows, err := s.repo.ListLowStockLots(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list low stock lots: %w", err)
+	}
+
+	var summaries []schema.LowStockLotSummary
+	for _, r := range rows {
+		summaries = append(summaries, toLowStockLotSummary(r))
+	}
+	return summaries, nil
+}
+
+// ListExpiringLots returns lots expiring within the given horizon (default 30 days)
+func (s *InventoryService) ListExpiringLots(ctx context.Context, horizonDays *int32) ([]schema.ExpiringLotSummary, error) {
+	days := int32(30)
+	if horizonDays != nil {
+		days = *horizonDays
+	}
+
+	rows, err := s.repo.ListExpiringLots(ctx, days)
+	if err != nil {
+		return nil, fmt.Errorf("list expiring lots: %w", err)
+	}
+
+	var summaries []schema.ExpiringLotSummary
+	for _, r := range rows {
+		summaries = append(summaries, toExpiringLotSummary(r))
+	}
+	return summaries, nil
+}
+
+// AdjustStock adjusts stock quantity for a lot with a reason code
+func (s *InventoryService) AdjustStock(ctx context.Context, req schema.AdjustStockRequest, userID int64) (*schema.StockAdjustmentSummary, error) {
+	if req.QuantityDelta == 0 {
+		return nil, ErrInvalidQuantity
+	}
+	if strings.TrimSpace(req.ReasonCode) == "" || strings.TrimSpace(req.Reason) == "" {
+		return nil, ErrInvalidInput
+	}
+
+	var adjustment schema.StockAdjustmentSummary
+
+	err := s.db.WithTx(ctx, func(tx *database.Tx) error {
+		txRepo := repo.NewInventoryRepositoryWithTx(tx)
+
+		// Get current lot
+		lot, err := txRepo.GetLotByIDForUpdate(ctx, req.LotID)
+		if err != nil {
+			return ErrLotNotFound
+		}
+
+		if lot.IsQuarantined {
+			return ErrLotQuarantined
+		}
+
+		previousQty := lot.AvailableQuantity
+		newQty := previousQty + req.QuantityDelta
+		if newQty < 0 {
+			newQty = 0
+		}
+
+		// Update lot quantities
+		_, err := txRepo.AdjustLotQuantities(ctx, req.LotID, req.QuantityDelta)
+		if err != nil {
+			return fmt.Errorf("adjust lot quantities: %w", err)
+		}
+
+		// Update stock level
+		sl, err := txRepo.GetStockLevelByID(ctx, lot.StockLevelID)
+		if err == nil && sl.ID != 0 {
+			newAvail := sl.AvailableQuantity + req.QuantityDelta
+			if newAvail < 0 {
+				newAvail = 0
+			}
+			newTotal := sl.TotalQuantity + req.QuantityDelta
+			if newTotal < 0 {
+				newTotal = 0
+			}
+			_, err = txRepo.UpdateStockLevelQuantitiesOnAdjustment(ctx, sl.ID, req.QuantityDelta)
+			if err != nil {
+				return fmt.Errorf("update stock level: %w", err)
+			}
+		}
+
+		// Create adjustment record
+		code := fmt.Sprintf("adj_%d_%d", time.Now().UnixNano(), lot.ID)
+		adjRow, err := txRepo.CreateStockAdjustment(ctx, code, req.LotID, req.QuantityDelta, previousQty, newQty, req.ReasonCode, req.Reason, pgtype.Int8{Int64: userID, Valid: userID > 0})
+		if err != nil {
+			return fmt.Errorf("create stock adjustment: %w", err)
+		}
+
+		adjustment = schema.StockAdjustmentSummary{
+			ID:               adjRow.ID,
+			LotID:            adjRow.LotID,
+			LotCode:          lot.Code,
+			LotNumber:        lot.LotNumber,
+			QuantityDelta:    adjRow.QuantityDelta,
+			PreviousQuantity: adjRow.PreviousQuantity,
+			NewQuantity:      adjRow.NewQuantity,
+			ReasonCode:       adjRow.ReasonCode,
+			Reason:           adjRow.Reason,
+			AdjustedBy:       adjRow.AdjustedBy.Int64,
+			AdjustedAt:       adjRow.CreatedAt,
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	if s.publisher != nil {
+		_ = s.publisher.Publish(ctx, "inventory.stock.adjusted", map[string]interface{}{
+			"lot_id":         req.LotID,
+			"quantity_delta": req.QuantityDelta,
+			"reason_code":    req.ReasonCode,
+			"adjusted_by":    userID,
+		})
+	}
+
+	return &adjustment, nil
+}
+
+func toLowStockLotSummary(r repo.ListLowStockLotsRow) schema.LowStockLotSummary {
+	threshold := r.SafetyStock
+	return schema.LowStockLotSummary{
+		ID:                r.ID,
+		Code:              r.Code,
+		StockLevelID:      r.StockLevelID,
+		LotNumber:         r.LotNumber,
+		ProductID:         r.ProductID,
+		ProductCode:       r.ProductCode.String,
+		ProductName:       r.ProductName.String,
+		SupplierID:        r.SupplierID,
+		SupplierCode:      r.SupplierCode.String,
+		AvailableQuantity: r.AvailableQuantity,
+		ReservedQuantity:  r.ReservedQuantity,
+		SafetyStock:       r.SafetyStock,
+		Threshold:         threshold,
+		CreatedAt:         r.CreatedAt,
+		UpdatedAt:         r.UpdatedAt,
+	}
+}
+
+func toExpiringLotSummary(r repo.ListExpiringLotsRow) schema.ExpiringLotSummary {
+	daysUntilExpiry := 0
+	if r.ExpiresAt.Valid {
+		daysUntilExpiry = int(time.Until(r.ExpiresAt.Time).Hours() / 24)
+	}
+	return schema.ExpiringLotSummary{
+		ID:                r.ID,
+		Code:              r.Code,
+		StockLevelID:      r.StockLevelID,
+		LotNumber:         r.LotNumber,
+		ProductID:         r.ProductID,
+		ProductCode:       r.ProductCode.String,
+		ProductName:       r.ProductName.String,
+		SupplierID:        r.SupplierID,
+		SupplierCode:      r.SupplierCode.String,
+		AvailableQuantity: r.AvailableQuantity,
+		ReservedQuantity:  r.ReservedQuantity,
+		ExpiresAt:         r.ExpiresAt.Time,
+		DaysUntilExpiry:   daysUntilExpiry,
+		CreatedAt:         r.CreatedAt,
+		UpdatedAt:         r.UpdatedAt,
+	}
+}
+
+func toStockAdjustmentSummary(r repo.CreateStockAdjustmentRow) schema.StockAdjustmentSummary {
+	return schema.StockAdjustmentSummary{
+		ID:               r.ID,
+		LotID:            r.LotID,
+		QuantityDelta:    r.QuantityDelta,
+		PreviousQuantity: r.PreviousQuantity,
+		NewQuantity:      r.NewQuantity,
+		ReasonCode:       r.ReasonCode,
+		Reason:           r.Reason,
+		AdjustedBy:       r.AdjustedBy.Int64,
+		AdjustedAt:       r.CreatedAt,
+	}
+}
+
+

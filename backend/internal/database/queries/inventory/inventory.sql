@@ -128,3 +128,84 @@ FOR UPDATE;
 SELECT * FROM inventory.reservation
 WHERE request_id = $1 AND deleted_at IS NULL
 FOR UPDATE;
+
+-- name: ReleaseLot :one
+UPDATE inventory.lot
+SET is_quarantined = FALSE,
+    status = 'active',
+    available_quantity = $2,
+    updated_at = NOW()
+WHERE id = $1 AND deleted_at IS NULL
+RETURNING *;
+
+-- name: ListLowStockLots :many
+SELECT l.*, sl.product_id, sl.supplier_id, sl.safety_stock,
+       p.code as product_code, p.name as product_name,
+       s.code as supplier_code
+FROM inventory.lot l
+JOIN inventory.stock_level sl ON sl.id = l.stock_level_id
+JOIN catalog.product p ON p.id = sl.product_id
+JOIN catalog.supplier s ON s.id = sl.supplier_id
+WHERE l.deleted_at IS NULL
+  AND l.is_quarantined = FALSE
+  AND l.status = 'active'
+  AND l.available_quantity < sl.safety_stock
+ORDER BY (sl.safety_stock - l.available_quantity) DESC, l.expires_at ASC;
+
+-- name: ListExpiringLots :many
+SELECT l.*, sl.product_id, sl.supplier_id,
+       p.code as product_code, p.name as product_name,
+       s.code as supplier_code
+FROM inventory.lot l
+JOIN inventory.stock_level sl ON sl.id = l.stock_level_id
+JOIN catalog.product p ON p.id = sl.product_id
+JOIN catalog.supplier s ON s.id = sl.supplier_id
+WHERE l.deleted_at IS NULL
+  AND l.is_quarantined = FALSE
+  AND l.status = 'active'
+  AND l.expires_at IS NOT NULL
+  AND l.expires_at <= NOW() + INTERVAL '$1 days'
+ORDER BY l.expires_at ASC;
+
+-- name: AdjustLotQuantities :one
+UPDATE inventory.lot
+SET available_quantity = available_quantity + $2,
+    updated_at = NOW()
+WHERE id = $1 AND deleted_at IS NULL
+RETURNING *;
+
+-- name: CreateStockAdjustment :one
+INSERT INTO inventory.stock_adjustment (
+    code, lot_id, quantity_delta, previous_quantity, new_quantity,
+    reason_code, reason, adjusted_by
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8
+) RETURNING *;
+
+-- name: UpdateStockLevelQuantitiesOnAdjustment :one
+UPDATE inventory.stock_level
+SET available_quantity = available_quantity + $2,
+    total_quantity = total_quantity + $2,
+    updated_at = NOW()
+WHERE id = $1 AND deleted_at IS NULL
+RETURNING *;
+
+-- name: GetQuarantineRecordByLot :one
+SELECT * FROM inventory.quarantine_record
+WHERE lot_id = $1 AND status = 'quarantined' AND deleted_at IS NULL
+ORDER BY created_at DESC
+LIMIT 1;
+
+-- name: UpdateQuarantineRecordStatus :one
+UPDATE inventory.quarantine_record
+SET status = 'released',
+    adjusted_quantity = $2,
+    updated_at = NOW()
+WHERE id = $1 AND deleted_at IS NULL
+RETURNING *;
+
+-- name: GetQuarantineRecordByLotAndStatus :one
+SELECT * FROM inventory.quarantine_record
+WHERE lot_id = $1 AND status = $2 AND deleted_at IS NULL
+ORDER BY created_at DESC
+LIMIT 1;
