@@ -131,6 +131,30 @@ UPDATE identity.buyer_profile
 SET deleted_at = NOW(), updated_at = NOW()
 WHERE id = $1;
 
+-- name: UpdateBuyerProfile :one
+UPDATE identity.buyer_profile
+SET business_name = COALESCE($2, business_name),
+    trading_name = COALESCE($3, trading_name),
+    tax_id = COALESCE($4, tax_id),
+    registration_number = COALESCE($5, registration_number),
+    phone = COALESCE($6, phone),
+    website = COALESCE($7, website),
+    industry = COALESCE($8, industry),
+    employee_count = COALESCE($9, employee_count),
+    annual_revenue_minor = COALESCE($10, annual_revenue_minor),
+    currency = COALESCE($11, currency),
+    credit_limit_minor = COALESCE($12, credit_limit_minor),
+    credit_terms_days = COALESCE($13, credit_terms_days),
+    is_on_credit_hold = COALESCE($14, is_on_credit_hold),
+    credit_hold_reason = COALESCE($15, credit_hold_reason),
+    updated_at = NOW()
+WHERE user_id = $1 AND deleted_at IS NULL
+RETURNING id, code, user_id, business_name, trading_name, tax_id,
+       registration_number, phone, website, industry,
+       employee_count, annual_revenue_minor, currency,
+       credit_limit_minor, credit_terms_days, is_on_credit_hold,
+       credit_hold_reason, created_at, updated_at;
+
 -- Supplier Profiles
 
 -- name: CreateSupplierProfile :one
@@ -191,6 +215,15 @@ SELECT id, code, owner_user_id, owner_type, label,
        created_at, updated_at, deleted_at
 FROM identity.address
 WHERE code = $1 AND deleted_at IS NULL;
+
+-- name: GetAddressByID :one
+SELECT id, code, owner_user_id, owner_type, label,
+       recipient_name, company_name, line1, line2,
+       city, state_province, postal_code, country,
+       phone, is_default, handling_class, delivery_instructions,
+       created_at, updated_at, deleted_at
+FROM identity.address
+WHERE id = $1 AND deleted_at IS NULL;
 
 -- name: UpdateAddress :one
 UPDATE identity.address

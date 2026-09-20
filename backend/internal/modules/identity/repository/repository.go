@@ -2,7 +2,6 @@ package repository
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/atlas-platform/backend/internal/database"
@@ -122,8 +121,51 @@ func (r *BuyerProfileRepository) GetBuyerProfileByCode(ctx context.Context, code
 	return r.q.GetBuyerProfileByCode(ctx, code)
 }
 
-func (r *BuyerProfileRepository) UpdateBuyerProfile(ctx context.Context, userID int64, req map[string]interface{}) (identity.GetBuyerProfileByUserIDRow, error) {
-	return identity.GetBuyerProfileByUserIDRow{}, fmt.Errorf("not implemented")
+func (r *BuyerProfileRepository) UpdateBuyerProfile(ctx context.Context, userID int64, req map[string]interface{}) (identity.UpdateBuyerProfileRow, error) {
+	params := identity.UpdateBuyerProfileParams{ID: userID}
+	if v, ok := req["business_name"].(string); ok {
+		params.BusinessName = v
+	}
+	if v, ok := req["trading_name"].(string); ok {
+		params.TradingName = pgtype.Text{String: v, Valid: true}
+	}
+	if v, ok := req["tax_id"].(string); ok {
+		params.TaxID = pgtype.Text{String: v, Valid: true}
+	}
+	if v, ok := req["registration_number"].(string); ok {
+		params.RegistrationNumber = pgtype.Text{String: v, Valid: true}
+	}
+	if v, ok := req["phone"].(string); ok {
+		params.Phone = pgtype.Text{String: v, Valid: true}
+	}
+	if v, ok := req["website"].(string); ok {
+		params.Website = pgtype.Text{String: v, Valid: true}
+	}
+	if v, ok := req["industry"].(string); ok {
+		params.Industry = pgtype.Text{String: v, Valid: true}
+	}
+	if v, ok := req["employee_count"].(int); ok {
+		params.EmployeeCount = pgtype.Int4{Int32: int32(v), Valid: true}
+	}
+	if v, ok := req["annual_revenue_minor"].(int64); ok {
+		params.AnnualRevenueMinor = pgtype.Int8{Int64: v, Valid: true}
+	}
+	if v, ok := req["currency"].(string); ok {
+		params.Currency = v
+	}
+	if v, ok := req["credit_limit_minor"].(int64); ok {
+		params.CreditLimitMinor = pgtype.Int8{Int64: v, Valid: true}
+	}
+	if v, ok := req["credit_terms_days"].(int); ok {
+		params.CreditTermsDays = pgtype.Int4{Int32: int32(v), Valid: true}
+	}
+	if v, ok := req["is_on_credit_hold"].(bool); ok {
+		params.IsOnCreditHold = v
+	}
+	if v, ok := req["credit_hold_reason"].(string); ok {
+		params.CreditHoldReason = pgtype.Text{String: v, Valid: true}
+	}
+	return r.q.UpdateBuyerProfile(ctx, params)
 }
 
 func (r *BuyerProfileRepository) SoftDeleteBuyerProfile(ctx context.Context, id int64) error {
@@ -156,9 +198,55 @@ func (r *AddressRepository) GetAddressesByOwner(ctx context.Context, ownerUserID
 func (r *AddressRepository) GetAddressByCode(ctx context.Context, code string) (identity.IdentityAddress, error) {
 	return r.q.GetAddressByCode(ctx, code)
 }
+func (r *AddressRepository) UpdateAddress(ctx context.Context, code string, req map[string]interface{}) (identity.UpdateAddressRow, error) {
+	// Get current address by code first
+	current, err := r.q.GetAddressByCode(ctx, code)
+	if err != nil {
+		return identity.UpdateAddressRow{}, err
+	}
 
-func (r *AddressRepository) UpdateAddress(ctx context.Context, id int64, req map[string]interface{}) (identity.IdentityAddress, error) {
-	return identity.IdentityAddress{}, fmt.Errorf("not implemented: GetAddressByID needed")
+	params := identity.UpdateAddressParams{ID: current.ID}
+	if v, ok := req["label"].(string); ok {
+		params.Label = v
+	}
+	if v, ok := req["recipient_name"].(string); ok {
+		params.RecipientName = pgtype.Text{String: v, Valid: true}
+	}
+	if v, ok := req["company_name"].(string); ok {
+		params.CompanyName = pgtype.Text{String: v, Valid: true}
+	}
+	if v, ok := req["line1"].(string); ok {
+		params.Line1 = v
+	}
+	if v, ok := req["line2"].(string); ok {
+		params.Line2 = pgtype.Text{String: v, Valid: true}
+	}
+	if v, ok := req["city"].(string); ok {
+		params.City = v
+	}
+	if v, ok := req["state_province"].(string); ok {
+		params.StateProvince = pgtype.Text{String: v, Valid: true}
+	}
+	if v, ok := req["postal_code"].(string); ok {
+		params.PostalCode = v
+	}
+	if v, ok := req["country"].(string); ok {
+		params.Country = v
+	}
+	if v, ok := req["phone"].(string); ok {
+		params.Phone = pgtype.Text{String: v, Valid: true}
+	}
+	if v, ok := req["is_default"].(bool); ok {
+		params.IsDefault = v
+	}
+	if v, ok := req["handling_class"].(string); ok {
+		params.HandlingClass = pgtype.Text{String: v, Valid: true}
+	}
+	if v, ok := req["delivery_instructions"].(string); ok {
+		params.DeliveryInstructions = pgtype.Text{String: v, Valid: true}
+	}
+
+	return r.q.UpdateAddress(ctx, params)
 }
 
 func (r *AddressRepository) SetDefaultAddress(ctx context.Context, addressID int64, ownerUserID int64, ownerType identity.IdentityUserType) error {
@@ -198,15 +286,36 @@ func (r *VerificationRepository) GetVerificationApplicationByBuyer(ctx context.C
 }
 
 func (r *VerificationRepository) UpdateVerificationApplicationStatus(ctx context.Context, id int64, status string, decidedBy int64, reason string) (identity.UpdateVerificationApplicationStatusRow, error) {
-	return identity.UpdateVerificationApplicationStatusRow{}, fmt.Errorf("not implemented")
+	var decidedByVal pgtype.Int8
+	if decidedBy > 0 {
+		decidedByVal = pgtype.Int8{Int64: decidedBy, Valid: true}
+	}
+	return r.q.UpdateVerificationApplicationStatus(ctx, identity.UpdateVerificationApplicationStatusParams{
+		ID:      id,
+		Status:  identity.IdentityVerificationStatus(status),
+		DecidedBy: decidedByVal,
+		DecisionReason: pgtype.Text{String: reason, Valid: true},
+	})
 }
 
 func (r *VerificationRepository) ListVerificationApplications(ctx context.Context, status *string, limit, offset int32) ([]identity.ListVerificationApplicationsRow, error) {
-	return nil, fmt.Errorf("not implemented")
+	var statusVal identity.IdentityVerificationStatus
+	if status != nil {
+		statusVal = identity.IdentityVerificationStatus(*status)
+	}
+	return r.q.ListVerificationApplications(ctx, identity.ListVerificationApplicationsParams{
+		Column1: statusVal,
+		Limit:   limit,
+		Offset:  offset,
+	})
 }
 
 func (r *VerificationRepository) CountVerificationApplications(ctx context.Context, status *string) (int64, error) {
-	return 0, fmt.Errorf("not implemented")
+	var statusVal identity.IdentityVerificationStatus
+	if status != nil {
+		statusVal = identity.IdentityVerificationStatus(*status)
+	}
+	return r.q.CountVerificationApplications(ctx, statusVal)
 }
 
 func (r *VerificationRepository) CreateVerificationDocument(ctx context.Context, params identity.CreateVerificationDocumentParams) (identity.CreateVerificationDocumentRow, error) {

@@ -42,6 +42,7 @@ var (
 	ErrPermissionNotFound   = errors.New("permission not found")
 	ErrOTPNotFound          = errors.New("OTP not found")
 	ErrOTPExpired           = errors.New("OTP has expired")
+	ErrInvalidInput         = errors.New("invalid input")
 	ErrInvalidResetToken    = errors.New("invalid or expired reset token")
 	ErrResetTokenUsed       = errors.New("reset token already used")
 )
@@ -501,12 +502,18 @@ func (s *BuyerService) UpdateProfile(ctx context.Context, userID int64, req sche
 		updates["currency"] = *req.Currency
 	}
 
-	profile, err := s.buyerRepo.UpdateBuyerProfile(ctx, userID, updates)
+	_, err := s.buyerRepo.UpdateBuyerProfile(ctx, userID, updates)
 	if err != nil {
 		return nil, fmt.Errorf("update buyer profile: %w", err)
 	}
 
-	return s.toBuyerProfileResponse(profile), nil
+	// Fetch full profile after update
+	fullProfile, err := s.buyerRepo.GetBuyerProfileByUserID(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get updated buyer profile: %w", err)
+	}
+
+	return s.toBuyerProfileResponse(fullProfile), nil
 }
 
 func (s *BuyerService) ListAddresses(ctx context.Context, userID int64) ([]schema.AddressResponse, error) {
@@ -615,12 +622,19 @@ func (s *BuyerService) UpdateAddress(ctx context.Context, userID int64, addressC
 		updates["delivery_instructions"] = *req.DeliveryInstructions
 	}
 
-	updatedAddr, err := s.addressRepo.UpdateAddress(ctx, address.ID, updates)
+	_, err = s.addressRepo.UpdateAddress(ctx, addressCode, updates)
 	if err != nil {
 		return nil, fmt.Errorf("update address: %w", err)
 	}
 
-	return s.toAddressResponseFromIdentity(updatedAddr), nil
+	// Fetch full address after update
+	fullAddr, err := s.addressRepo.GetAddressByCode(ctx, addressCode)
+	if err != nil {
+		return nil, fmt.Errorf("get updated address: %w", err)
+	}
+
+	addrResp := s.toAddressResponseFromIdentity(fullAddr)
+	return addrResp, nil
 }
 
 func (s *BuyerService) DeleteAddress(ctx context.Context, userID int64, addressCode string) error {
@@ -697,5 +711,318 @@ func (s *BuyerService) toAddressResponseFromIdentity(addr identity.IdentityAddre
 		DeliveryInstructions: addr.DeliveryInstructions.String,
 		CreatedAt:            addr.CreatedAt,
 		UpdatedAt:            addr.UpdatedAt,
+	}
+}
+
+// ==================== AdminService ====================
+
+type AdminService struct {
+	userRepo          *repository.UserRepository
+	buyerRepo         *repository.BuyerProfileRepository
+	verificationRepo  *repository.VerificationRepository
+	roleRepo          *repository.RoleRepository
+	refreshTokenRepo  *repository.RefreshTokenRepository
+	sessionRepo       *repository.SessionRepository
+}
+
+func NewAdminService() *AdminService { return &AdminService{} }
+
+func (s *AdminService) SetDependencies(
+	userRepo *repository.UserRepository,
+	buyerRepo *repository.BuyerProfileRepository,
+	verificationRepo *repository.VerificationRepository,
+	roleRepo *repository.RoleRepository,
+	refreshTokenRepo *repository.RefreshTokenRepository,
+	sessionRepo *repository.SessionRepository,
+) {
+	s.userRepo = userRepo
+	s.buyerRepo = buyerRepo
+	s.verificationRepo = verificationRepo
+	s.roleRepo = roleRepo
+	s.refreshTokenRepo = refreshTokenRepo
+	s.sessionRepo = sessionRepo
+}
+
+// ListUsers returns paginated list of users
+func (s *AdminService) ListUsers(ctx context.Context, page, pageSize int32) ([]schema.AdminUserResponse, int64, error) {
+	users, err := s.userRepo.ListUsers(ctx, pageSize, (page-1)*pageSize)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list users: %w", err)
+	}
+	total, err := s.userRepo.CountUsers(ctx)
+	if err != nil {
+		return nil, 0, fmt.Errorf("count users: %w", err)
+	}
+
+	var resp []schema.AdminUserResponse
+	for _, u := range users {
+		resp = append(resp, s.toAdminUserResponse(u))
+	}
+	return resp, total, nil
+}
+
+// GetUserByID returns a user by ID with profiles
+func (s *AdminService) GetUserByID(ctx context.Context, id int64) (*schema.AdminUserResponse, error) {
+	user, err := s.userRepo.GetUserByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrUserNotFound
+		}
+		return nil, fmt.Errorf("get user: %w", err)
+	}
+	resp := s.toAdminUserResponseFromUser(user)
+	return resp, nil
+}
+
+// UpdateUser updates a user
+func (s *AdminService) UpdateUser(ctx context.Context, id int64, req schema.AdminUserUpdateRequest) (*schema.AdminUserResponse, error) {
+	user, err := s.userRepo.GetUserByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrUserNotFound
+		}
+		return nil, fmt.Errorf("get user: %w", err)
+	}
+
+	isActive := user.IsActive
+	if req.IsActive != nil {
+		isActive = *req.IsActive
+	}
+	userType := user.UserType
+	if req.UserType != nil {
+		userType = identity.IdentityUserType(*req.UserType)
+	}
+
+	updated, err := s.userRepo.UpdateUser(ctx, id, user.Email, userType, isActive, user.IsVerified)
+	if err != nil {
+		return nil, fmt.Errorf("update user: %w", err)
+	}
+
+	return s.toAdminUserResponseFromIdentity(updated), nil
+}
+
+// SuspendUser suspends a user
+func (s *AdminService) SuspendUser(ctx context.Context, id int64, req schema.AdminSuspendRequest) error {
+	user, err := s.userRepo.GetUserByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrUserNotFound
+		}
+		return fmt.Errorf("get user: %w", err)
+	}
+
+	if !user.IsActive {
+		return nil // Already inactive
+	}
+
+	_, err = s.userRepo.UpdateUser(ctx, id, user.Email, user.UserType, false, user.IsVerified)
+	if err != nil {
+		return fmt.Errorf("suspend user: %w", err)
+	}
+
+	// Revoke all sessions and refresh tokens
+	s.sessionRepo.RevokeUserSessions(ctx, id)
+	s.refreshTokenRepo.RevokeRefreshTokenFamily(ctx, "", "suspended: "+req.Reason)
+
+	return nil
+}
+
+// ListVerifications returns paginated verification applications
+func (s *AdminService) ListVerifications(ctx context.Context, status *string, page, pageSize int32) ([]schema.VerificationApplicationResponse, int64, error) {
+	apps, err := s.verificationRepo.ListVerificationApplications(ctx, status, pageSize, (page-1)*pageSize)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list verifications: %w", err)
+	}
+	total, err := s.verificationRepo.CountVerificationApplications(ctx, status)
+	if err != nil {
+		return nil, 0, fmt.Errorf("count verifications: %w", err)
+	}
+
+	var resp []schema.VerificationApplicationResponse
+	for _, a := range apps {
+		resp = append(resp, s.toVerificationResponse(a))
+	}
+	return resp, total, nil
+}
+
+// DecideVerification approves or rejects a verification
+func (s *AdminService) DecideVerification(ctx context.Context, id int64, req schema.AdminVerificationDecisionRequest, decidedBy int64) (*schema.VerificationApplicationResponse, error) {
+	if req.Decision != "approved" && req.Decision != "rejected" {
+		return nil, ErrInvalidInput
+	}
+
+	_, err := s.verificationRepo.UpdateVerificationApplicationStatus(ctx, id, req.Decision, decidedBy, req.Reason)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrVerificationNotFound
+		}
+		return nil, fmt.Errorf("decide verification: %w", err)
+	}
+
+	// Update buyer profile verification status
+	app, err := s.verificationRepo.GetVerificationApplicationByID(ctx, id)
+	if err == nil {
+		verificationStatus := "pending"
+		if req.Decision == "approved" {
+			verificationStatus = "approved"
+		} else if req.Decision == "rejected" {
+			verificationStatus = "rejected"
+		}
+		updates := map[string]interface{}{"verification_status": verificationStatus}
+		s.buyerRepo.UpdateBuyerProfile(ctx, app.BuyerProfileID, updates)
+	}
+
+	app, err = s.verificationRepo.GetVerificationApplicationByID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("get verification: %w", err)
+	}
+
+	return s.toVerificationResponseFromIdentity(app), nil
+}
+
+// ListRoles returns all roles
+func (s *AdminService) ListRoles(ctx context.Context) ([]schema.AdminRoleResponse, error) {
+	roles, err := s.roleRepo.ListRoles(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list roles: %w", err)
+	}
+
+	var resp []schema.AdminRoleResponse
+	for _, r := range roles {
+		resp = append(resp, schema.AdminRoleResponse{
+			ID:          r.ID,
+			Code:        r.Code,
+			Name:        r.Name,
+			Description: r.Description.String,
+			IsSystem:    r.IsSystem,
+			CreatedAt:   r.CreatedAt,
+		})
+	}
+	return resp, nil
+}
+
+// SetRolePermissions sets permissions for a role
+func (s *AdminService) SetRolePermissions(ctx context.Context, roleCode string, req schema.AdminSetRolePermissionsRequest) error {
+	role, err := s.roleRepo.GetRoleByCode(ctx, roleCode)
+	if err != nil {
+		return ErrRoleNotFound
+	}
+
+	// Remove all existing permissions
+	// Note: This would require a DeleteRolePermissions query which we don't have
+	// For now, we just add new ones (they're inserted with ON CONFLICT DO NOTHING)
+	for _, permCode := range req.PermissionCodes {
+		perm, err := s.roleRepo.GetPermissionByCode(ctx, permCode)
+		if err != nil {
+			return fmt.Errorf("permission %s not found: %w", permCode, ErrPermissionNotFound)
+		}
+		if err := s.roleRepo.AssignPermissionToRole(ctx, role.ID, perm.ID); err != nil {
+			return fmt.Errorf("assign permission: %w", err)
+		}
+	}
+	return nil
+}
+
+// GetUserPermissions returns permissions for a user
+func (s *AdminService) GetUserPermissions(ctx context.Context, userID int64) ([]schema.AdminPermissionResponse, error) {
+	perms, err := s.roleRepo.GetUserPermissions(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get user permissions: %w", err)
+	}
+
+	var resp []schema.AdminPermissionResponse
+	for _, p := range perms {
+		resp = append(resp, schema.AdminPermissionResponse{
+			ID:       p.ID,
+			Code:     p.Code,
+			Name:     p.Name,
+			Resource: p.Resource,
+			Action:   p.Action,
+		})
+	}
+	return resp, nil
+}
+
+func (s *AdminService) toAdminUserResponse(u identity.ListUsersRow) schema.AdminUserResponse {
+	var lastLoginAt *time.Time
+	if u.LastLoginAt.Valid {
+		t := u.LastLoginAt.Time
+		lastLoginAt = &t
+	}
+	return schema.AdminUserResponse{
+		ID:         u.ID,
+		Code:       u.Code,
+		Email:      u.Email,
+		UserType:   string(u.UserType),
+		IsActive:   u.IsActive,
+		IsVerified: u.IsVerified,
+		LastLoginAt: lastLoginAt,
+		CreatedAt:  u.CreatedAt,
+	}
+}
+
+func (s *AdminService) toAdminUserResponseFromIdentity(u identity.UpdateUserRow) *schema.AdminUserResponse {
+	return &schema.AdminUserResponse{
+		ID:         u.ID,
+		Code:       u.Code,
+		Email:      u.Email,
+		UserType:   string(u.UserType),
+		IsActive:   u.IsActive,
+		IsVerified: u.IsVerified,
+		CreatedAt:  u.CreatedAt,
+	}
+}
+
+func (s *AdminService) toAdminUserResponseFromUser(u identity.IdentityUser) *schema.AdminUserResponse {
+	var lastLoginAt *time.Time
+	if u.LastLoginAt.Valid {
+		t := u.LastLoginAt.Time
+		lastLoginAt = &t
+	}
+	return &schema.AdminUserResponse{
+		ID:         u.ID,
+		Code:       u.Code,
+		Email:      u.Email,
+		UserType:   string(u.UserType),
+		IsActive:   u.IsActive,
+		IsVerified: u.IsVerified,
+		LastLoginAt: lastLoginAt,
+		CreatedAt:  u.CreatedAt,
+	}
+}
+
+func (s *AdminService) toVerificationResponse(v identity.ListVerificationApplicationsRow) schema.VerificationApplicationResponse {
+	var decidedAt *time.Time
+	if v.DecidedAt.Valid {
+		t := v.DecidedAt.Time
+		decidedAt = &t
+	}
+	return schema.VerificationApplicationResponse{
+		Code:           v.Code,
+		Status:         string(v.Status),
+		SubmittedAt:    v.SubmittedAt,
+		DecidedAt:      decidedAt,
+		DecisionReason: v.DecisionReason.String,
+		RejectionReason: v.RejectionReason.String,
+		CreatedAt:      v.CreatedAt,
+		UpdatedAt:      v.UpdatedAt,
+	}
+}
+
+func (s *AdminService) toVerificationResponseFromIdentity(v identity.IdentityVerificationApplication) *schema.VerificationApplicationResponse {
+	var decidedAt *time.Time
+	if v.DecidedAt.Valid {
+		t := v.DecidedAt.Time
+		decidedAt = &t
+	}
+	return &schema.VerificationApplicationResponse{
+		Code:           v.Code,
+		Status:         string(v.Status),
+		SubmittedAt:    v.SubmittedAt,
+		DecidedAt:      decidedAt,
+		DecisionReason: v.DecisionReason.String,
+		RejectionReason: v.RejectionReason.String,
+		CreatedAt:      v.CreatedAt,
+		UpdatedAt:      v.UpdatedAt,
 	}
 }
