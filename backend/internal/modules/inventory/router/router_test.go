@@ -37,7 +37,7 @@ func TestMain(m *testing.M) {
 		rawDB, err := sql.Open("pgx", cfg.PostgresDSN())
 		if err == nil && rawDB != nil {
 			_, _ = rawDB.Exec("SELECT pg_advisory_lock($1)", int64(inventoryTestDBLockKey))
-			_, _ = rawDB.Exec("DROP SCHEMA IF EXISTS catalog CASCADE; DROP SCHEMA IF EXISTS inventory CASCADE; DROP SCHEMA IF EXISTS identity CASCADE; DROP SCHEMA IF EXISTS pricing CASCADE; DROP SCHEMA IF EXISTS commerce CASCADE; DROP SCHEMA IF EXISTS payments CASCADE; DROP SCHEMA IF EXISTS promotions CASCADE; DROP SCHEMA IF EXISTS crm CASCADE; DROP SCHEMA IF EXISTS reports CASCADE; DROP SCHEMA IF EXISTS erp CASCADE; DROP TABLE IF EXISTS schema_migrations CASCADE; DROP TYPE IF EXISTS catalog_handling_class_type CASCADE;")
+			_, _ = rawDB.Exec("DROP SCHEMA IF EXISTS catalog CASCADE; DROP SCHEMA IF EXISTS inventory CASCADE; DROP SCHEMA IF EXISTS identity CASCADE; DROP SCHEMA IF EXISTS pricing CASCADE; DROP SCHEMA IF EXISTS commerce CASCADE; DROP SCHEMA IF EXISTS payments CASCADE; DROP SCHEMA IF EXISTS promotions CASCADE; DROP SCHEMA IF EXISTS crm CASCADE; DROP SCHEMA IF EXISTS suppliers CASCADE; DROP SCHEMA IF EXISTS cms CASCADE; DROP SCHEMA IF EXISTS reports CASCADE; DROP SCHEMA IF EXISTS erp CASCADE; DROP SCHEMA IF EXISTS platform CASCADE; DROP SCHEMA IF EXISTS ai CASCADE; DROP SCHEMA IF EXISTS analytics CASCADE; DROP TABLE IF EXISTS schema_migrations CASCADE; DROP TYPE IF EXISTS catalog_handling_class_type CASCADE;")
 
 			if err := database.RunMigrations(ctx, &cfg.Postgres, "file://../../../../migrations"); err != nil {
 				fmt.Printf("TestMain migration error: %v\n", err)
@@ -1204,5 +1204,107 @@ func TestHTTP_ErrorEnvelope_RequestIDPropagation(t *testing.T) {
 	}
 	if out.RequestID != reqID2 {
 		t.Errorf("reservation body request_id must be the idempotency key (%s), got %s", reqID2, out.RequestID)
+	}
+}
+
+func TestHTTP_ReleaseLot_Valid(t *testing.T) {
+	env := setupEnv(t, nopMiddleware, nopMiddleware)
+	productID, supplierID := createTestProductAndSupplier(t, env)
+	_, lotID := createTestStockAndLot(t, env, productID, supplierID, "LOT-REL-1", 10, time.Now().Add(24*time.Hour))
+
+	// Quarantine first
+	resp, body := doJSON(t, env, http.MethodPost, fmt.Sprintf("/api/v1/inventory/lots/%d/quarantine", lotID), `{"reason":"hold"}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("quarantine failed: %d %s", resp.StatusCode, string(body))
+	}
+
+	// Release lot
+	resp, body = doJSON(t, env, http.MethodPost, fmt.Sprintf("/api/v1/inventory/lots/%d/release", lotID), `{"reason":"passed inspection"}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 on release, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	var lot schema.LotSummary
+	if err := json.Unmarshal(body, &lot); err != nil {
+		t.Fatalf("decode lot: %v", err)
+	}
+	if lot.IsQuarantined {
+		t.Errorf("expected lot not quarantined after release")
+	}
+	if lot.AvailableQuantity != 10 {
+		t.Errorf("expected available quantity 10, got %d", lot.AvailableQuantity)
+	}
+}
+
+func TestHTTP_ListLowStock_Valid(t *testing.T) {
+	env := setupEnv(t, nopMiddleware, nopMiddleware)
+	productID, supplierID := createTestProductAndSupplier(t, env)
+	_, _ = createTestStockAndLot(t, env, productID, supplierID, "LOT-LOW-1", 2, time.Now().Add(24*time.Hour))
+
+	// Set safety stock on stock level to 5 (available is 2 < 5)
+	_, err := env.db.Pool.Exec(context.Background(), `
+		UPDATE inventory.stock_level SET safety_stock = 5 WHERE product_id = $1 AND supplier_id = $2
+	`, productID, supplierID)
+	if err != nil {
+		t.Fatalf("failed to update safety stock: %v", err)
+	}
+
+	resp, body := doJSON(t, env, http.MethodGet, "/api/v1/inventory/low-stock", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	var summaries []schema.LowStockLotSummary
+	if err := json.Unmarshal(body, &summaries); err != nil {
+		t.Fatalf("decode low stock: %v", err)
+	}
+	if len(summaries) == 0 {
+		t.Errorf("expected low stock lots, got 0")
+	}
+}
+
+func TestHTTP_ListExpiring_Valid(t *testing.T) {
+	env := setupEnv(t, nopMiddleware, nopMiddleware)
+	productID, supplierID := createTestProductAndSupplier(t, env)
+	createTestStockAndLot(t, env, productID, supplierID, "LOT-EXP-1", 10, time.Now().Add(2*time.Hour))
+
+	resp, body := doJSON(t, env, http.MethodGet, "/api/v1/inventory/expiring?horizon_days=1", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	var summaries []schema.ExpiringLotSummary
+	if err := json.Unmarshal(body, &summaries); err != nil {
+		t.Fatalf("decode expiring: %v", err)
+	}
+	if len(summaries) == 0 {
+		t.Errorf("expected expiring lots, got 0")
+	}
+}
+
+func TestHTTP_AdjustStock_Valid(t *testing.T) {
+	env := setupEnv(t, nopMiddleware, withPrincipalMiddleware)
+	createTestUser(t, env, 7)
+	productID, supplierID := createTestProductAndSupplier(t, env)
+	_, lotID := createTestStockAndLot(t, env, productID, supplierID, "LOT-ADJ-1", 10, time.Now().Add(24*time.Hour))
+
+	reqBody := fmt.Sprintf(`{"lot_id":%d,"quantity_delta":5,"reason_code":"CYCLE_COUNT","reason":"found extra"}`, lotID)
+	resp, body := doJSON(t, env, http.MethodPost, "/api/v1/inventory/adjust", reqBody)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	var adj schema.StockAdjustmentSummary
+	if err := json.Unmarshal(body, &adj); err != nil {
+		t.Fatalf("decode adjustment: %v", err)
+	}
+	if adj.QuantityDelta != 5 {
+		t.Errorf("expected quantity delta 5, got %d", adj.QuantityDelta)
+	}
+	if adj.PreviousQuantity != 10 {
+		t.Errorf("expected previous quantity 10, got %d", adj.PreviousQuantity)
+	}
+	if adj.NewQuantity != 15 {
+		t.Errorf("expected new quantity 15, got %d", adj.NewQuantity)
 	}
 }

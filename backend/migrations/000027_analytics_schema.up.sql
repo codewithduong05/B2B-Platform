@@ -4,7 +4,13 @@ CREATE SCHEMA IF NOT EXISTS analytics;
 
 -- Create analytics_ro role for read-only analytics tool access
 -- IMPORTANT: Replace 'YOUR_ANALYTICS_RO_PASSWORD' with a strong, secret password in production.
-CREATE ROLE analytics_ro NOINHERIT LOGIN PASSWORD 'YOUR_ANALYTICS_RO_PASSWORD';
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'analytics_ro') THEN
+        CREATE ROLE analytics_ro NOINHERIT LOGIN PASSWORD 'YOUR_ANALYTICS_RO_PASSWORD';
+    END IF;
+END
+$$;
 ALTER ROLE analytics_ro SET statement_timeout = '300s';
 ALTER ROLE analytics_ro SET idle_in_transaction_session_timeout = '60s';
 

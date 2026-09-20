@@ -6,6 +6,8 @@ import (
 
 	"github.com/atlas-platform/backend/internal/database"
 	"github.com/atlas-platform/backend/internal/database/queries/inventory"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -82,6 +84,7 @@ type GetQuarantineRecordByLotRow struct {
 
 type InventoryRepository struct {
 	db *database.DB
+	tx *database.Tx
 	q  *inventory.Queries
 }
 
@@ -94,8 +97,22 @@ func NewInventoryRepository(db *database.DB) *InventoryRepository {
 
 func NewInventoryRepositoryWithTx(tx *database.Tx) *InventoryRepository {
 	return &InventoryRepository{
-		q: inventory.New(tx),
+		tx: tx,
+		q:  inventory.New(tx),
 	}
+}
+
+type querier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
+
+func (r *InventoryRepository) conn() querier {
+	if r.tx != nil {
+		return r.tx
+	}
+	return r.db.Pool
 }
 
 func (r *InventoryRepository) CreateStockLevel(ctx context.Context, params inventory.CreateStockLevelParams) (inventory.InventoryStockLevel, error) {
@@ -199,7 +216,7 @@ func (r *InventoryRepository) CreateQuarantineRecord(ctx context.Context, params
 
 func (r *InventoryRepository) ReleaseLot(ctx context.Context, id int64, availableQuantity int32) (inventory.InventoryLot, error) {
 	var lot inventory.InventoryLot
-	err := r.db.Pool.QueryRow(ctx, `
+	err := r.conn().QueryRow(ctx, `
 		UPDATE inventory.lot
 		SET is_quarantined = FALSE,
 		    status = 'active',
@@ -216,7 +233,7 @@ func (r *InventoryRepository) ReleaseLot(ctx context.Context, id int64, availabl
 }
 
 func (r *InventoryRepository) ListLowStockLots(ctx context.Context) ([]ListLowStockLotsRow, error) {
-	rows, err := r.db.Pool.Query(ctx, `
+	rows, err := r.conn().Query(ctx, `
 		SELECT l.*, sl.product_id, sl.supplier_id, sl.safety_stock,
 		       p.code as product_code, p.name as product_name,
 		       s.code as supplier_code
@@ -261,7 +278,7 @@ func (r *InventoryRepository) ListLowStockLots(ctx context.Context) ([]ListLowSt
 }
 
 func (r *InventoryRepository) ListExpiringLots(ctx context.Context, days int32) ([]ListExpiringLotsRow, error) {
-	rows, err := r.db.Pool.Query(ctx, `
+	rows, err := r.conn().Query(ctx, `
 		SELECT l.*, sl.product_id, sl.supplier_id,
 		       p.code as product_code, p.name as product_name,
 		       s.code as supplier_code
@@ -273,7 +290,7 @@ func (r *InventoryRepository) ListExpiringLots(ctx context.Context, days int32) 
 		  AND l.is_quarantined = FALSE
 		  AND l.status = 'active'
 		  AND l.expires_at IS NOT NULL
-		  AND l.expires_at <= NOW() + INTERVAL '$1 days'
+		  AND l.expires_at <= NOW() + INTERVAL '1 day' * $1
 		ORDER BY l.expires_at ASC
 	`, days)
 	if err != nil {
@@ -312,7 +329,7 @@ func (r *InventoryRepository) ListExpiringLots(ctx context.Context, days int32) 
 
 func (r *InventoryRepository) AdjustLotQuantities(ctx context.Context, id int64, quantityDelta int32) (inventory.InventoryLot, error) {
 	var lot inventory.InventoryLot
-	err := r.db.Pool.QueryRow(ctx, `
+	err := r.conn().QueryRow(ctx, `
 		UPDATE inventory.lot
 		SET available_quantity = available_quantity + $2,
 		    updated_at = NOW()
@@ -328,7 +345,7 @@ func (r *InventoryRepository) AdjustLotQuantities(ctx context.Context, id int64,
 
 func (r *InventoryRepository) CreateStockAdjustment(ctx context.Context, code string, lotID int64, quantityDelta, previousQuantity, newQuantity int32, reasonCode, reason string, adjustedBy pgtype.Int8) (CreateStockAdjustmentRow, error) {
 	var adj CreateStockAdjustmentRow
-	err := r.db.Pool.QueryRow(ctx, `
+	err := r.conn().QueryRow(ctx, `
 		INSERT INTO inventory.stock_adjustment (
 			code, lot_id, quantity_delta, previous_quantity, new_quantity,
 			reason_code, reason, adjusted_by
@@ -343,7 +360,7 @@ func (r *InventoryRepository) CreateStockAdjustment(ctx context.Context, code st
 
 func (r *InventoryRepository) UpdateStockLevelQuantitiesOnAdjustment(ctx context.Context, id int64, quantityDelta int32) (inventory.InventoryStockLevel, error) {
 	var sl inventory.InventoryStockLevel
-	err := r.db.Pool.QueryRow(ctx, `
+	err := r.conn().QueryRow(ctx, `
 		UPDATE inventory.stock_level
 		SET available_quantity = available_quantity + $2,
 		    total_quantity = total_quantity + $2,
@@ -363,7 +380,7 @@ func (r *InventoryRepository) GetQuarantineRecordByLot(ctx context.Context, lotI
 	var qrAdjustedQty pgtype.Int4
 	var qrCreatedAt, qrUpdatedAt pgtype.Timestamptz
 	var qrAdjustedBy pgtype.Int8
-	err := r.db.Pool.QueryRow(ctx, `
+	err := r.conn().QueryRow(ctx, `
 		SELECT id, code, lot_id, status, reason, adjusted_quantity, adjusted_by, created_at, updated_at
 		FROM inventory.quarantine_record
 		WHERE lot_id = $1 AND status = 'quarantined' AND deleted_at IS NULL
@@ -397,7 +414,7 @@ func (r *InventoryRepository) UpdateQuarantineRecordStatus(ctx context.Context, 
 	var qrAdjustedQty pgtype.Int4
 	var qrCreatedAt, qrUpdatedAt pgtype.Timestamptz
 	var qrAdjustedBy pgtype.Int8
-	err := r.db.Pool.QueryRow(ctx, `
+	err := r.conn().QueryRow(ctx, `
 		UPDATE inventory.quarantine_record
 		SET status = 'released',
 		    adjusted_quantity = $2,

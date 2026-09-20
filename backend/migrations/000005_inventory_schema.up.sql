@@ -84,6 +84,22 @@ CREATE TABLE inventory.quarantine_record (
 
 CREATE INDEX idx_inventory_quarantine_lot ON inventory.quarantine_record (lot_id) WHERE deleted_at IS NULL;
 
+-- Stock Adjustments
+CREATE TABLE inventory.stock_adjustment (
+    id BIGSERIAL PRIMARY KEY,
+    code VARCHAR(26) NOT NULL UNIQUE,
+    lot_id BIGINT NOT NULL REFERENCES inventory.lot (id) ON DELETE CASCADE,
+    quantity_delta INT NOT NULL,
+    previous_quantity INT NOT NULL,
+    new_quantity INT NOT NULL,
+    reason_code VARCHAR(100) NOT NULL,
+    reason TEXT NOT NULL,
+    adjusted_by BIGINT REFERENCES identity.user (id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_inventory_stock_adjustment_lot ON inventory.stock_adjustment (lot_id);
+
 -- Trigger to update updated_at timestamps
 CREATE OR REPLACE FUNCTION inventory.update_updated_at_column()
 RETURNS TRIGGER AS $$
