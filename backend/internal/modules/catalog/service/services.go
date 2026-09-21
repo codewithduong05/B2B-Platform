@@ -154,6 +154,7 @@ func (s *ProductService) GetProduct(ctx context.Context, slug string) (*schema.P
 		detail.Attributes = make([]schema.ProductAttributeSummary, 0, len(attrs))
 		for _, a := range attrs {
 			valName := a.AttributeValueName.String
+			var boolVal *bool
 			if valName == "" {
 				if a.TextValue.Valid {
 					valName = a.TextValue.String
@@ -161,7 +162,9 @@ func (s *ProductService) GetProduct(ctx context.Context, slug string) (*schema.P
 					f, _ := a.NumberValue.Float64Value()
 					valName = fmt.Sprintf("%g", f.Float64)
 				} else if a.BooleanValue.Valid {
-					if a.BooleanValue.Bool {
+					b := a.BooleanValue.Bool
+					boolVal = &b
+					if b {
 						valName = "Yes"
 					} else {
 						valName = "No"
@@ -174,6 +177,7 @@ func (s *ProductService) GetProduct(ctx context.Context, slug string) (*schema.P
 				AttributeType: a.AttributeType,
 				ValueName:     valName,
 				TextValue:     a.TextValue.String,
+				BooleanValue:  boolVal,
 			})
 		}
 	}
@@ -204,6 +208,7 @@ func (s *ProductService) GetProduct(ctx context.Context, slug string) (*schema.P
 func (s *ProductService) toProductDetailFromSlugRow(p catalog.GetProductBySlugRow) *schema.ProductDetail {
 	detail := &schema.ProductDetail{
 		ProductSummary: schema.ProductSummary{
+			ID:               p.ID,
 			Code:             p.Code,
 			Slug:             p.Slug,
 			Name:             p.Name,
@@ -316,6 +321,7 @@ func (s *ProductService) toProductDetailFromProduct(ctx context.Context, p catal
 
 	return &schema.ProductDetail{
 		ProductSummary: schema.ProductSummary{
+			ID:               p.ID,
 			Code:             p.Code,
 			Slug:             p.Slug,
 			Name:             p.Name,
@@ -536,11 +542,8 @@ func (s *ProductService) isValidHandlingClass(class string) bool {
 func (s *ProductService) toProductSummary(p catalog.ListProductsRow) schema.ProductSummary {
 	categoryCode := ""
 	brandCode := ""
-	supplierCode := ""
+	supplierCode := p.SupplierCode.String
 	baseUnitCode := ""
-
-	// The ListProductsRow doesn't have joined fields, so we return empty for now
-	// In a real implementation, we might want to join or fetch these separately
 
 	var basePriceMinor *int64
 	if p.BasePriceMinor.Valid {
@@ -548,6 +551,7 @@ func (s *ProductService) toProductSummary(p catalog.ListProductsRow) schema.Prod
 	}
 
 	return schema.ProductSummary{
+		ID:               p.ID,
 		Code:             p.Code,
 		Slug:             p.Slug,
 		Name:             p.Name,
@@ -557,6 +561,7 @@ func (s *ProductService) toProductSummary(p catalog.ListProductsRow) schema.Prod
 		HandlingClass:    string(p.HandlingClass),
 		BaseUnitCode:     baseUnitCode,
 		SupplierCode:     supplierCode,
+		SupplierName:     p.SupplierName.String,
 		Status:           string(p.Status),
 		IsActive:         p.IsActive,
 		IsFeatured:       p.IsFeatured,
@@ -572,6 +577,7 @@ func (s *ProductService) toProductSummary(p catalog.ListProductsRow) schema.Prod
 func (s *ProductService) toProductDetail(p catalog.GetProductBySlugRow) *schema.ProductDetail {
 	return &schema.ProductDetail{
 		ProductSummary: schema.ProductSummary{
+			ID:               p.ID,
 			Code:             p.Code,
 			Slug:             p.Slug,
 			Name:             p.Name,

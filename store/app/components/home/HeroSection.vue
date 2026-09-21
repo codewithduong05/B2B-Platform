@@ -1,15 +1,41 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
+
+const { addToCart } = useCart()
 
 const stagedCount = ref(0)
 const skuInput = ref('')
 const qtyInput = ref(5)
+const adding = ref(false)
 
-function stageItem() {
+const stats = ref({ products: 0, categories: 0, brands: 0, suppliers: 0 })
+
+async function loadStats() {
+  try {
+    const data = await $fetch<{ products: number; categories: number; brands: number; suppliers: number }>('/api/home/stats')
+    stats.value = data
+  } catch {
+    // Stats unavailable
+  }
+}
+
+onMounted(() => {
+  loadStats()
+})
+
+async function stageItem() {
   if (!skuInput.value.trim()) return
-  stagedCount.value++
-  skuInput.value = ''
-  qtyInput.value = 5
+  adding.value = true
+  try {
+    await addToCart(skuInput.value.trim(), qtyInput.value)
+    stagedCount.value++
+    skuInput.value = ''
+    qtyInput.value = 5
+  } catch {
+    // Cart unavailable (auth required)
+  } finally {
+    adding.value = false
+  }
 }
 
 function presetSku(sku: string) {
@@ -30,19 +56,19 @@ function presetSku(sku: string) {
       <div class="hero-kpis">
         <div class="kpi-card">
           <span class="kpi-label">Products</span>
-          <span class="kpi-value">--</span>
+          <span class="kpi-value">{{ stats.products.toLocaleString() }}</span>
         </div>
         <div class="kpi-card">
           <span class="kpi-label">Categories</span>
-          <span class="kpi-value">--</span>
+          <span class="kpi-value">{{ stats.categories.toLocaleString() }}</span>
         </div>
         <div class="kpi-card">
           <span class="kpi-label">Brands</span>
-          <span class="kpi-value">--</span>
+          <span class="kpi-value">{{ stats.brands.toLocaleString() }}</span>
         </div>
         <div class="kpi-card">
           <span class="kpi-label">Suppliers</span>
-          <span class="kpi-value">--</span>
+          <span class="kpi-value">{{ stats.suppliers.toLocaleString() }}</span>
         </div>
       </div>
 

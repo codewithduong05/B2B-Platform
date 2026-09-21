@@ -3,6 +3,7 @@ import { useProduct } from '~/composables/useProduct'
 
 const route = useRoute()
 const sku = route.params.sku as string
+const { addToCart } = useCart()
 
 const {
   product,
@@ -16,6 +17,20 @@ const {
   adjustQty,
   setQty,
 } = useProduct(sku)
+
+const addingToCart = ref(false)
+
+async function handleAddToCart() {
+  if (!product.value) return
+  addingToCart.value = true
+  try {
+    await addToCart(product.value.sku, selectedQty.value)
+  } catch {
+    // Cart requires auth
+  } finally {
+    addingToCart.value = false
+  }
+}
 
 onMounted(() => {
   fetchProduct()
@@ -108,9 +123,9 @@ const activeTab = ref('dimensions')
 
             <!-- Action CTAs -->
             <div class="product-ctas">
-              <button class="button product-cta-primary">
+              <button class="button product-cta-primary" :disabled="addingToCart" @click="handleAddToCart">
                 <span class="material-symbols-outlined">shopping_cart</span>
-                Add to Staging Cart
+                {{ addingToCart ? 'Adding...' : 'Add to Staging Cart' }}
               </button>
               <button class="button button-secondary product-cta-secondary">
                 <span class="material-symbols-outlined">request_quote</span>
@@ -185,7 +200,7 @@ const activeTab = ref('dimensions')
                     >Need custom manifold spacing or hazardous zone ATEX cert?</span
                   >
                   <span class="product-doc-cta-desc"
-                    >Festo OEM Field Application Engineers available for Atlas buyers.</span
+                    >{{ product?.supplier?.name || 'Supplier' }} OEM Field Application Engineers available for Atlas buyers.</span
                   >
                 </div>
               </div>

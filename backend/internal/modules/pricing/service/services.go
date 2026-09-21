@@ -340,7 +340,8 @@ func (s *PriceListService) GetPriceForProduct(ctx context.Context, priceListID, 
 	}
 
 	var bestMatch *pricing.GetPriceForProductRow
-	for _, item := range items {
+	for i := len(items) - 1; i >= 0; i-- {
+		item := items[i]
 		if quantity >= int64(item.MinQuantity) {
 			if item.MaxQuantity.Valid && quantity > int64(item.MaxQuantity.Int32) {
 				continue
@@ -388,7 +389,8 @@ func (s *PriceListService) GetPriceForQuote(ctx context.Context, priceListID, pr
 	}
 
 	var bestMatch *pricing.GetPriceForQuoteRow
-	for _, item := range items {
+	for i := len(items) - 1; i >= 0; i-- {
+		item := items[i]
 		if quantity >= int64(item.MinQuantity) {
 			if item.MaxQuantity.Valid && quantity > int64(item.MaxQuantity.Int32) {
 				continue
@@ -565,6 +567,80 @@ func (s *PriceListService) GetActiveAssignmentForBuyer(ctx context.Context, buye
 		return nil, ErrInvalidAssignment
 	}
 	return s.toPriceListAssignmentSummary(assignment), nil
+}
+
+func (s *PriceListService) GetProductPricingTiers(ctx context.Context, productID, unitID int64) (*schema.ProductPricingTiersResponse, error) {
+	// Find active price lists
+	plists, err := s.priceListRepo.GetActivePriceLists(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get active price lists: %w", err)
+	}
+
+	if len(plists) == 0 {
+		return &schema.ProductPricingTiersResponse{
+			ProductID: productID,
+			UnitID:    unitID,
+			BasePrice: 0,
+			Currency:  "USD",
+			Tiers:     []schema.ProductPricingTier{},
+		}, nil
+	}
+
+	pl := plists[0]
+	priceListID := pl.ID
+
+	items, err := s.priceItemRepo.GetPriceForProduct(ctx, priceListID, productID, unitID)
+	if err != nil {
+		return nil, fmt.Errorf("get price for product: %w", err)
+	}
+
+	if len(items) == 0 {
+		return &schema.ProductPricingTiersResponse{
+			ProductID: productID,
+			UnitID:    unitID,
+			BasePrice: 0,
+			Currency:  pl.Currency,
+			Tiers:     []schema.ProductPricingTier{},
+		}, nil
+	}
+
+	tiers := make([]schema.ProductPricingTier, 0, len(items))
+	for _, item := range items {
+		qtiers, err := s.quantityTierRepo.GetQuantityTiersByItem(ctx, item.ID)
+		if err != nil || len(qtiers) == 0 {
+			tiers = append(tiers, schema.ProductPricingTier{
+				MinQuantity: int(item.MinQuantity),
+				MaxQuantity: intPtrFromPgtype(item.MaxQuantity),
+				PriceMinor:  item.PriceMinor,
+				Currency:    pl.Currency,
+			})
+		} else {
+			for _, qt := range qtiers {
+				tiers = append(tiers, schema.ProductPricingTier{
+					MinQuantity: int(qt.MinQuantity),
+					MaxQuantity: intPtrFromPgtype(qt.MaxQuantity),
+					PriceMinor:  qt.PriceMinor,
+					Currency:    pl.Currency,
+				})
+			}
+		}
+	}
+
+	return &schema.ProductPricingTiersResponse{
+		ProductID: productID,
+		UnitID:    unitID,
+		BasePrice: items[0].PriceMinor,
+		Currency:  pl.Currency,
+		Tiers:     tiers,
+	}, nil
+}
+
+func intPtrFromPgtype(v pgtype.Int4) *int {
+	if v.Valid {
+		val := int(v.Int32)
+		return &val
+	}
+	return nil
 }
 
 func getPriceForQuoteParams(priceListID, productID, unitID int64) pricing.GetPriceForQuoteParams {

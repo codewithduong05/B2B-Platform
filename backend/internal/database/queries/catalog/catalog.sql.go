@@ -1987,15 +1987,17 @@ func (q *Queries) ListProductUnits(ctx context.Context, productID int64) ([]List
 
 const listProducts = `-- name: ListProducts :many
 SELECT
-    id, code, slug, name, description, short_description,
-    category_id, brand_id, handling_class, base_unit_id, supplier_id,
-    status, is_active, is_featured, sort_order,
-    base_price_minor, currency, track_inventory,
-    weight_grams, length_mm, width_mm, height_mm,
-    gtin, sku,
-    seo_title, seo_description, seo_keywords,
-    created_at, updated_at, published_at, deleted_at
-FROM catalog.product,
+    p.id, p.code, p.slug, p.name, p.description, p.short_description,
+    p.category_id, p.brand_id, p.handling_class, p.base_unit_id, p.supplier_id,
+    p.status, p.is_active, p.is_featured, p.sort_order,
+    p.base_price_minor, p.currency, p.track_inventory,
+    p.weight_grams, p.length_mm, p.width_mm, p.height_mm,
+    p.gtin, p.sku,
+    p.seo_title, p.seo_description, p.seo_keywords,
+    p.created_at, p.updated_at, p.published_at, p.deleted_at,
+    s.code AS supplier_code, s.name AS supplier_name
+FROM catalog.product p
+LEFT JOIN catalog.supplier s ON s.id = p.supplier_id AND s.deleted_at IS NULL,
     (SELECT
         $1::text AS p_status,
         $2::bigint AS p_category_id,
@@ -2004,21 +2006,21 @@ FROM catalog.product,
         $5::bigint AS p_supplier_id,
         $6::text AS p_query
     ) params
-WHERE deleted_at IS NULL
-  AND (params.p_status = '' OR status = params.p_status::catalog.product_status)
-  AND (params.p_category_id = 0 OR category_id = params.p_category_id)
-  AND (params.p_brand_id = 0 OR brand_id = params.p_brand_id)
-  AND (params.p_handling_class = '' OR handling_class = params.p_handling_class::catalog_handling_class_type)
-  AND (params.p_supplier_id = 0 OR supplier_id = params.p_supplier_id)
-  AND (params.p_query IS NULL OR name ILIKE '%' || params.p_query || '%' OR description ILIKE '%' || params.p_query || '%')
+WHERE p.deleted_at IS NULL
+  AND (params.p_status = '' OR p.status = params.p_status::catalog.product_status)
+  AND (params.p_category_id = 0 OR p.category_id = params.p_category_id)
+  AND (params.p_brand_id = 0 OR p.brand_id = params.p_brand_id)
+  AND (params.p_handling_class = '' OR p.handling_class = params.p_handling_class::catalog_handling_class_type)
+  AND (params.p_supplier_id = 0 OR p.supplier_id = params.p_supplier_id)
+  AND (params.p_query IS NULL OR p.name ILIKE '%' || params.p_query || '%' OR p.description ILIKE '%' || params.p_query || '%')
 ORDER BY
-    CASE WHEN $7 = 'name_asc' THEN name END ASC,
-    CASE WHEN $7 = 'name_desc' THEN name END DESC,
-    CASE WHEN $7 = 'price_asc' THEN base_price_minor END ASC,
-    CASE WHEN $7 = 'price_desc' THEN base_price_minor END DESC,
-    CASE WHEN $7 = 'created_desc' OR $7 IS NULL THEN created_at END DESC,
-    CASE WHEN $7 = 'created_asc' THEN created_at END ASC,
-    CASE WHEN $7 = 'featured' THEN is_featured END DESC
+    CASE WHEN $7 = 'name_asc' THEN p.name END ASC,
+    CASE WHEN $7 = 'name_desc' THEN p.name END DESC,
+    CASE WHEN $7 = 'price_asc' THEN p.base_price_minor END ASC,
+    CASE WHEN $7 = 'price_desc' THEN p.base_price_minor END DESC,
+    CASE WHEN $7 = 'created_desc' OR $7 IS NULL THEN p.created_at END DESC,
+    CASE WHEN $7 = 'created_asc' THEN p.created_at END ASC,
+    CASE WHEN $7 = 'featured' THEN p.is_featured END DESC
 LIMIT $8 OFFSET $9
 `
 
@@ -2066,6 +2068,8 @@ type ListProductsRow struct {
 	UpdatedAt        time.Time                `json:"updated_at"`
 	PublishedAt      pgtype.Timestamptz       `json:"published_at"`
 	DeletedAt        pgtype.Timestamptz       `json:"deleted_at"`
+	SupplierCode     pgtype.Text              `json:"supplier_code"`
+	SupplierName     pgtype.Text              `json:"supplier_name"`
 }
 
 func (q *Queries) ListProducts(ctx context.Context, arg ListProductsParams) ([]ListProductsRow, error) {
@@ -2119,6 +2123,8 @@ func (q *Queries) ListProducts(ctx context.Context, arg ListProductsParams) ([]L
 			&i.UpdatedAt,
 			&i.PublishedAt,
 			&i.DeletedAt,
+			&i.SupplierCode,
+			&i.SupplierName,
 		); err != nil {
 			return nil, err
 		}

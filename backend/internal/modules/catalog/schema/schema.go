@@ -5,6 +5,7 @@ import (
 )
 
 type ProductSummary struct {
+	ID               int64      `json:"id"`
 	Code             string     `json:"code"`
 	Slug             string     `json:"slug"`
 	Name             string     `json:"name"`
@@ -14,6 +15,7 @@ type ProductSummary struct {
 	HandlingClass    string     `json:"handling_class"`
 	BaseUnitCode     string     `json:"base_unit_code"`
 	SupplierCode     string     `json:"supplier_code"`
+	SupplierName     string     `json:"supplier_name,omitempty"`
 	Status           string     `json:"status"`
 	IsActive         bool       `json:"is_active"`
 	IsFeatured       bool       `json:"is_featured"`

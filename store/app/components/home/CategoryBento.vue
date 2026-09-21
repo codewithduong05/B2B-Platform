@@ -6,6 +6,7 @@ interface ApiCategory {
   description: string
   sort_order: number
   is_active: boolean
+  productCount: number
 }
 
 interface CategoryBentoItem {
@@ -29,18 +30,13 @@ const categories = ref<CategoryBentoItem[]>([])
 
 onMounted(async () => {
   try {
-    const data = await $fetch<{ items: ApiCategory[] }>('/api/catalog/categories', {
-      query: { page: 1, page_size: 50 },
-    })
-    const topLevel = (data.items || []).filter(
-      (c) => c.is_active && !c.description?.includes('sub'),
-    )
-    categories.value = topLevel.map((c) => ({
+    const data = await $fetch<{ items: ApiCategory[] }>('/api/home/categories')
+    categories.value = (data.items || []).map((c) => ({
       title: c.name,
       desc: c.description || c.name,
       path: `/catalog?category=${c.slug}`,
       icon: CATEGORY_ICONS[c.slug] || 'category',
-      count: '',
+      count: c.productCount > 0 ? `${c.productCount} products` : '',
     }))
   } catch {
     categories.value = []

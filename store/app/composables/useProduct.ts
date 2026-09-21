@@ -45,8 +45,8 @@ export function useProduct(sku: string) {
 
   function adjustQty(delta: number) {
     const next = selectedQty.value + delta
-    const maxStock = product.value?.totalStock ?? 1050
-    if (next >= 1 && next <= maxStock) {
+    const maxStock = product.value?.totalStock
+    if (next >= 1 && (maxStock == null || maxStock === 0 || next <= maxStock)) {
       selectedQty.value = next
     }
   }

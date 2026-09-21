@@ -167,3 +167,23 @@ type PriceListAssignmentListResponse struct {
 	Total    int64                        `json:"total"`
 	HasNext  bool                         `json:"has_next"`
 }
+
+type ProductPricingTiersRequest struct {
+	ProductID int64 `form:"product_id" validate:"required"`
+	UnitID    int64 `form:"unit_id"`
+}
+
+type ProductPricingTier struct {
+	MinQuantity int   `json:"min_quantity"`
+	MaxQuantity *int  `json:"max_quantity,omitempty"`
+	PriceMinor  int64 `json:"price_minor"`
+	Currency    string `json:"currency"`
+}
+
+type ProductPricingTiersResponse struct {
+	ProductID int64                 `json:"product_id"`
+	UnitID    int64                 `json:"unit_id"`
+	BasePrice int64                 `json:"base_price_minor"`
+	Currency  string                `json:"currency"`
+	Tiers     []ProductPricingTier  `json:"tiers"`
+}

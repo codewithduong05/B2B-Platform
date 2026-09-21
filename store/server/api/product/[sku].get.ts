@@ -3,6 +3,7 @@ import { resolveUpstreamConfig } from '../../utils/config'
 import { request } from '../../utils/upstream-client'
 
 interface UpstreamProductDetail {
+  id: number
   code: string
   slug: string
   name: string
@@ -101,7 +102,33 @@ interface UpstreamProductDetailResponse {
   product: UpstreamProductDetail
 }
 
-function mapProductDetail(data: UpstreamProductDetail): ProductDetail {
+interface StockLevelSummary {
+  id: number
+  code: string
+  product_id: number
+  supplier_id: number
+  available_quantity: number
+  reserved_quantity: number
+  total_quantity: number
+  safety_stock: number
+}
+
+interface PricingTier {
+  min_quantity: number
+  max_quantity?: number
+  price_minor: number
+  currency: string
+}
+
+interface PricingTiersResponse {
+  product_id: number
+  unit_id: number
+  base_price_minor: number
+  currency: string
+  tiers: PricingTier[]
+}
+
+function mapProductDetail(data: UpstreamProductDetail, stockLevels: StockLevelSummary[], pricingTiers: PricingTier[]): ProductDetail {
   const priceMinor = data.base_price_minor ?? 0
   const unitPrice = priceMinor / 100
   const unitName = data.base_unit?.name || data.base_unit_code || 'unit'
@@ -153,9 +180,37 @@ function mapProductDetail(data: UpstreamProductDetail): ProductDetail {
 
   const unitSymbol = data.base_unit?.symbol || unitName
 
-  const tiers = [
-    { id: 'tier-1', range: '1 - 9', price: unitPrice, discount: 'Standard' },
-  ]
+  const tiers = pricingTiers.map((t) => ({
+    id: `tier-${t.min_quantity}`,
+    range: t.max_quantity ? `${t.min_quantity} - ${t.max_quantity}` : `${t.min_quantity}+`,
+    price: t.price_minor / 100,
+    discount: t.price_minor < (pricingTiers[0]?.price_minor ?? 0)
+      ? `${Math.round((1 - t.price_minor / (pricingTiers[0]?.price_minor ?? t.price_minor)) * 100)}% off`
+      : 'Standard',
+  }))
+
+  const totalStock = stockLevels.reduce((sum, s) => sum + s.total_quantity, 0)
+
+  const stockLocations = stockLevels.map((s) => ({
+    warehouse: data.supplier?.name || `Supplier ${s.supplier_id}`,
+    detail: s.available_quantity > 0 ? 'Available' : 'Unavailable',
+    units: s.available_quantity,
+    transit: s.reserved_quantity > 0 ? `${s.reserved_quantity} reserved` : '',
+    priority: s.available_quantity === Math.max(...stockLevels.map((l) => l.available_quantity)),
+  }))
+
+  // Extract compliance from product attributes (RoHS, CE)
+  const compliance: string[] = []
+  if (data.attributes) {
+    for (const attr of data.attributes) {
+      if (attr.attribute_name === 'RoHS Compliant' && attr.boolean_value === true) {
+        compliance.push('RoHS')
+      }
+      if (attr.attribute_name === 'CE Marked' && attr.boolean_value === true) {
+        compliance.push('CE')
+      }
+    }
+  }
 
   return {
     id: data.code,
@@ -171,21 +226,21 @@ function mapProductDetail(data: UpstreamProductDetail): ProductDetail {
       onTimeSla: '',
       qualityDefect: '',
       terms: '',
-      compliance: [],
+      compliance,
     },
     pricing: {
       unitPrice,
       unit: unitSymbol,
       tiers,
     },
-    stock: [],
-    totalStock: 0,
+    stock: stockLocations,
+    totalStock,
     specs,
     images,
     artifacts: [],
     category: [data.category?.name || data.category_code || 'Products'],
     unspsc: data.category_code || '',
-    certifications: data.is_featured ? ['Featured Product'] : [],
+    certifications: compliance,
   }
 }
 
@@ -223,7 +278,46 @@ export default defineEventHandler(async (event) => {
     }
 
     const data = result.body as UpstreamProductDetailResponse
-    return mapProductDetail(data.product)
+    const product = data.product
+
+    let stockLevels: StockLevelSummary[] = []
+    try {
+      const stockResult = await request(
+        {
+          baseUrl: config.baseUrl,
+          timeoutMs: config.timeoutMs,
+          requestId,
+        },
+        'GET',
+        `/api/v1/inventory/availability?product_ids=${product.id}`,
+      )
+      if (stockResult.status === 200 && Array.isArray(stockResult.body)) {
+        stockLevels = stockResult.body as StockLevelSummary[]
+      }
+    } catch {
+      // Inventory unavailable — render product without stock data
+    }
+
+    let pricingTiers: PricingTier[] = []
+    try {
+      const pricingResult = await request(
+        {
+          baseUrl: config.baseUrl,
+          timeoutMs: config.timeoutMs,
+          requestId,
+        },
+        'GET',
+        `/api/v1/pricing/tiers?product_id=${product.id}`,
+      )
+      if (pricingResult.status === 200) {
+        const pricingData = pricingResult.body as PricingTiersResponse
+        pricingTiers = pricingData.tiers
+      }
+    } catch {
+      // Pricing unavailable — use base price only
+    }
+
+    return mapProductDetail(product, stockLevels, pricingTiers)
   } catch (error) {
     if (error && typeof error === 'object' && 'statusCode' in error) {
       throw error

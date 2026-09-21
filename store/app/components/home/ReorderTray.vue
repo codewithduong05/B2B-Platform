@@ -8,6 +8,7 @@ interface ReorderItem {
   qty: number
 }
 
+const { addToCart } = useCart()
 const items = ref<ReorderItem[]>([])
 
 function incrementQty(item: ReorderItem) {
@@ -18,9 +19,12 @@ function decrementQty(item: ReorderItem) {
   if (item.qty > 1) item.qty--
 }
 
-function instantReorder(item: ReorderItem) {
-  // TODO: wire to cart composable
-  void item
+async function instantReorder(item: ReorderItem) {
+  try {
+    await addToCart(item.sku, item.qty)
+  } catch {
+    // Cart requires auth
+  }
 }
 </script>
 
@@ -30,7 +34,12 @@ function instantReorder(item: ReorderItem) {
       <span class="material-symbols-outlined reorder-icon">history</span>
       <h2 class="section-title">Instant Replenishment</h2>
     </div>
-    <div class="reorder-grid">
+    <div v-if="items.length === 0" class="reorder-empty">
+      <span class="material-symbols-outlined reorder-empty-icon">receipt_long</span>
+      <p class="reorder-empty-text">Your recent orders will appear here for quick reorder.</p>
+      <NuxtLink to="/catalog" class="button button-secondary">Browse Catalog</NuxtLink>
+    </div>
+    <div v-else class="reorder-grid">
       <div v-for="item in items" :key="item.sku" class="reorder-card">
         <div class="reorder-info">
           <span class="reorder-sku">{{ item.sku }}</span>
@@ -175,5 +184,28 @@ function instantReorder(item: ReorderItem) {
   .reorder-grid {
     grid-template-columns: 1fr;
   }
+}
+
+.reorder-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-xl);
+  background-color: var(--surface);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-lg);
+  text-align: center;
+}
+
+.reorder-empty-icon {
+  font-size: 40px;
+  color: var(--outline-variant);
+}
+
+.reorder-empty-text {
+  margin: 0;
+  font-size: var(--text-body-sm);
+  color: var(--muted);
 }
 </style>

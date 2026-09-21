@@ -28,6 +28,7 @@ func (rt *Router) RegisterRoutes() {
 	// Public routes
 	rt.router.Route("/pricing", func(r chi.Router) {
 		r.Post("/quote", rt.handleQuote)
+		r.Get("/tiers", rt.handleProductTiers)
 	})
 
 	// Admin routes
@@ -53,6 +54,37 @@ func (rt *Router) handleQuote(w http.ResponseWriter, r *http.Request) {
 	resp, err := rt.service.PriceList.Quote(r.Context(), req)
 	if err != nil {
 		rt.writeError(w, http.StatusInternalServerError, "quote_failed", err.Error())
+		return
+	}
+
+	rt.writeJSON(w, http.StatusOK, resp)
+}
+
+func (rt *Router) handleProductTiers(w http.ResponseWriter, r *http.Request) {
+	productIDStr := r.URL.Query().Get("product_id")
+	if productIDStr == "" {
+		rt.writeError(w, http.StatusBadRequest, "missing_product_id", "product_id is required")
+		return
+	}
+	productID, err := strconv.ParseInt(productIDStr, 10, 64)
+	if err != nil {
+		rt.writeError(w, http.StatusBadRequest, "invalid_product_id", "invalid product_id")
+		return
+	}
+
+	unitIDStr := r.URL.Query().Get("unit_id")
+	unitID := int64(1) // default unit
+	if unitIDStr != "" {
+		unitID, err = strconv.ParseInt(unitIDStr, 10, 64)
+		if err != nil {
+			rt.writeError(w, http.StatusBadRequest, "invalid_unit_id", "invalid unit_id")
+			return
+		}
+	}
+
+	resp, err := rt.service.PriceList.GetProductPricingTiers(r.Context(), productID, unitID)
+	if err != nil {
+		rt.writeError(w, http.StatusInternalServerError, "tiers_failed", err.Error())
 		return
 	}
 

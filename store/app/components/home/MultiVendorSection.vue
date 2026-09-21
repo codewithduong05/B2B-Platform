@@ -1,3 +1,20 @@
+<script setup lang="ts">
+const vendorCount = ref(0)
+
+async function loadVendorCount() {
+  try {
+    const data = await $fetch<{ suppliers: number }>('/api/home/stats')
+    vendorCount.value = data.suppliers
+  } catch {
+    // Stats unavailable
+  }
+}
+
+onMounted(() => {
+  loadVendorCount()
+})
+</script>
+
 <template>
   <section class="vendor-section">
     <h2 class="section-title">Multi-Vendor Engine</h2>
@@ -10,7 +27,7 @@
           time, and regional availability.
         </p>
         <span class="vendor-card-stat">
-          <span class="vendor-stat-num">--</span> vendors active
+          <span class="vendor-stat-num">{{ vendorCount }}</span> vendors active
         </span>
       </div>
       <div class="vendor-card">

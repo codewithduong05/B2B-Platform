@@ -10,13 +10,31 @@ const emit = defineEmits<{
   (e: 'reset'): void
 }>()
 
-const suppliers: Array<{ name: string; count: number; checked: boolean }> = []
+const suppliers = ref<Array<{ name: string; count: number; checked: boolean }>>([])
 
 const leadTimes: Array<{ value: string; label: string; count: number }> = []
 
 const warehouses: Array<{ name: string; checked: boolean }> = []
 
 const complianceTags: Array<{ name: string; active: boolean }> = []
+
+// Fetch suppliers from BFF
+async function loadSuppliers() {
+  try {
+    const data = await $fetch<{ suppliers: Array<{ name: string; code: string }> }>('/api/catalog/filters')
+    suppliers.value = data.suppliers.map((s) => ({
+      name: s.name,
+      count: 0,
+      checked: false,
+    }))
+  } catch {
+    suppliers.value = []
+  }
+}
+
+onMounted(() => {
+  loadSuppliers()
+})
 
 const moqDisplay = ref(props.filters.moqMax)
 
