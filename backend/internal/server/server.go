@@ -41,14 +41,6 @@ func New(cfg *config.Config, healthHandler *health.Health) *Server {
 	router.Get("/health", healthHandler.LivenessHandler)
 	router.Get("/readyz", healthHandler.ReadinessHandler)
 
-	router.Route("/api/v1", func(r chi.Router) {
-		r.Get("/ping", func(w http.ResponseWriter, req *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"status":"ok","timestamp":"` + time.Now().UTC().Format(time.RFC3339) + `"}`))
-		})
-	})
-
 	httpServer := &http.Server{
 		Addr:         cfg.HTTPAddr(),
 		Handler:      router,
@@ -90,8 +82,8 @@ func (s *Server) WaitForShutdown(ctx context.Context) {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
 	select {
-	case sig := <-sigCh:
-		slog.InfoContext(ctx, "received signal", slog.String("signal", sig.String()))
+	case <-sigCh:
+		slog.InfoContext(ctx, "received shutdown signal")
 	case <-ctx.Done():
 		slog.InfoContext(ctx, "context cancelled")
 	}

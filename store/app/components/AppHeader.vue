@@ -46,7 +46,12 @@ const categories = [
       <div class="header-main-inner">
         <!-- Logo -->
         <div class="header-brand">
-          <img src="/logo.svg" alt="Atlas" class="header-logo" />
+          <img
+            src="/logo.svg"
+            alt="Atlas"
+            class="header-logo"
+            @error="($event.target as HTMLImageElement).style.display = 'none'"
+          />
           <span class="header-brand-text">Atlas Procurement</span>
         </div>
 

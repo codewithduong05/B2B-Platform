@@ -1,109 +1,239 @@
 import type { ProductDetail } from '~~/shared/product'
+import { resolveUpstreamConfig } from '../../utils/config'
+import { request } from '../../utils/upstream-client'
 
-const MOCK_PRODUCT: ProductDetail = {
-  id: '1',
-  sku: 'VLV-IND-9021',
-  name: 'High-Pressure Solenoid Valve 24V DC - IP65 Rated',
-  description:
-    'Precision-engineered proportional pneumatic solenoid valve for industrial fluid power applications. 316L stainless steel body, Class H insulation, IP65 sealed.',
-  mpn: 'MPN-FES-4491',
+interface UpstreamProductDetail {
+  code: string
+  slug: string
+  name: string
+  short_description: string
+  description: string
+  category_code: string
+  brand_code: string
+  handling_class: string
+  base_unit_code: string
+  supplier_code: string
+  status: string
+  is_active: boolean
+  is_featured: boolean
+  base_price_minor: number | null
+  currency: string
+  track_inventory: boolean
+  created_at: string
+  updated_at: string
+  published_at: string
+  weight_grams: number | null
+  length_mm: number | null
+  width_mm: number | null
+  height_mm: number | null
+  gtin: string | null
+  sku: string | null
+  category: {
+    code: string
+    name: string
+    slug: string
+    description: string
+    parent_code: string | null
+    sort_order: number
+    is_active: boolean
+  } | null
+  brand: {
+    code: string
+    name: string
+    slug: string
+    description: string
+    logo_url: string | null
+    website_url: string | null
+    is_active: boolean
+  } | null
+  base_unit: {
+    code: string
+    name: string
+    symbol: string
+    unit_type: string
+    base_unit_code: string
+    conversion_factor: number
+    is_active: boolean
+  } | null
   supplier: {
-    name: 'Apex Fluidic Solutions Ltd',
-    id: 'SUP-0042',
-    tier: 'Tier 1 MRO',
-    audited: true,
-    onTimeSla: '99.4%',
-    qualityDefect: '< 0.02%',
-    terms: 'Net 30',
-    compliance: [
-      'Accredited ISO 9001:2015 & ISO 14001 Production Facility',
-      'Hassle-free 30-day RMA return window under Master Agreement #MA-77109',
-      '24-Month OEM Festo Replacement Warranty & Seal Assurance',
-    ],
-  },
-  pricing: {
-    unitPrice: 142.5,
-    unit: 'unit',
-    tiers: [
-      { id: 'tier-1', range: '1 - 9', price: 142.5, discount: 'Standard' },
-      { id: 'tier-2', range: '10 - 49', price: 128.0, discount: '-10%' },
-      { id: 'tier-3', range: '50 - 99', price: 118.0, discount: '-17% VIP' },
-      { id: 'tier-4', range: '100+', price: 104.5, discount: '-26% MSA' },
-    ],
-  },
-  stock: [
-    {
-      warehouse: 'Chicago Central Logistics Hub',
-      detail: 'Priority Dispatch • Cutoff 4:30 PM CST',
-      units: 320,
-      transit: 'Same Day',
-      priority: true,
-    },
-    {
-      warehouse: 'Dallas Regional Depot',
-      detail: 'Ground Freight Zone 3',
-      units: 130,
-      transit: '2-Day Transit',
-      priority: false,
-    },
-    {
-      warehouse: 'European Central (Stuttgart)',
-      detail: 'Air Intermodal Re-allocation',
-      units: 600,
-      transit: '7-Day Transit',
-      priority: false,
-    },
-  ],
-  totalStock: 1050,
-  specs: [
-    { label: 'Operating Pressure', value: '0.5 to 16.0 bar (7.25 to 232 psi)', highlight: true },
-    {
-      label: 'Compatible Fluid Media',
-      value: 'Filtered Compressed Air (40μm), Inert Neutral Gases',
-    },
-    { label: 'Valve Body Metallurgy', value: '316L Austenitic Stainless Steel (1.4404)' },
-    {
-      label: 'Coil Insulation Thermal Class',
-      value: 'Class H 180°C (VDE 0580 Continuous Duty 100% ED)',
-    },
-    { label: 'Dynamic Response Time', value: '18 ms opening / 24 ms closing', highlight: true },
-    { label: 'Ingress Enclosure Rating', value: 'IP65 (NEMA 4 equivalent with cable plug fitted)' },
-    { label: 'Actuation Nominal Voltage', value: '24V DC (±10% tolerance) • 6.5W power draw' },
-    { label: 'Internal Porting / Flow Factor', value: 'G 1/2" ISO 228 Female • Kv 3.8 m³/h' },
-  ],
-  images: [
-    { label: 'ISO Front', alt: 'Isometric front elevation', active: true },
-    { label: 'Cutaway', alt: 'Armature & Sealing Section' },
-    { label: 'Terminal', alt: 'Electrical Terminal IP65' },
-    { label: 'Manifold', alt: 'Manifold Integration Context' },
-  ],
-  artifacts: [
-    {
-      icon: 'picture_as_pdf',
-      iconColor: 'error',
-      title: 'Datasheet & Curves',
-      description: 'PDF (4.2 MB) • EN/DE/FR',
-    },
-    {
-      icon: 'view_in_ar',
-      iconColor: 'secondary',
-      title: '3D STEP Solid Model',
-      description: 'ISO 10303 AP214 (12.8 MB)',
-    },
-    {
-      icon: 'verified_user',
-      iconColor: 'secondary',
-      title: 'RoHS & REACH CoC',
-      description: 'Signed Certificate (840 KB)',
-    },
-  ],
-  category: ['Industrial Supplies', 'Valves', 'Solenoid Valves'],
-  unspsc: '40141604',
-  certifications: ['Pre-Qualified MRO Contract'],
+    code: string
+    supplier_id: number
+    name: string
+    slug: string
+    description: string
+    logo_url: string | null
+    is_active: boolean
+  } | null
+  units: Array<{
+    code: string
+    unit_code: string
+    unit_name: string
+    unit_symbol: string
+    conversion_factor: number
+    is_default: boolean
+    price_minor: number
+  }> | null
+  media: Array<{
+    code: string
+    url: string
+    alt_text: string
+    media_type: string
+    sort_order: number
+    is_primary: boolean
+    width_px: number | null
+    height_px: number | null
+    file_size_bytes: number | null
+    mime_type: string | null
+  }> | null
+  attributes: Array<{
+    attribute_id: string
+    attribute_name: string
+    attribute_type: string
+    value_id: string
+    value_name: string
+    text_value: string
+    number_value: number | null
+    boolean_value: boolean | null
+  }> | null
 }
 
-export default defineEventHandler((event) => {
-  const _sku = getRouterParam(event, 'sku')
-  // In production, this would look up by SKU
-  return MOCK_PRODUCT
+interface UpstreamProductDetailResponse {
+  product: UpstreamProductDetail
+}
+
+function mapProductDetail(data: UpstreamProductDetail): ProductDetail {
+  const priceMinor = data.base_price_minor ?? 0
+  const unitPrice = priceMinor / 100
+  const unitName = data.base_unit?.name || data.base_unit_code || 'unit'
+
+  const specs = [
+    { label: 'Product Code', value: data.code },
+    { label: 'SKU', value: data.sku || data.code },
+    { label: 'Category', value: data.category?.name || data.category_code || 'N/A' },
+    { label: 'Brand', value: data.brand?.name || data.brand_code || 'N/A' },
+    { label: 'Handling Class', value: data.handling_class || 'N/A' },
+    { label: 'Unit', value: `${unitName} (${data.base_unit?.symbol || ''})` },
+  ]
+
+  if (data.weight_grams) {
+    specs.push({ label: 'Weight', value: `${data.weight_grams}g` })
+  }
+  if (data.length_mm && data.width_mm && data.height_mm) {
+    specs.push({
+      label: 'Dimensions',
+      value: `${data.length_mm} × ${data.width_mm} × ${data.height_mm} mm`,
+    })
+  }
+  if (data.gtin) {
+    specs.push({ label: 'GTIN', value: data.gtin })
+  }
+
+  if (data.attributes) {
+    for (const attr of data.attributes) {
+      specs.push({
+        label: attr.attribute_name,
+        value: attr.value_name || attr.text_value || String(attr.number_value || ''),
+      })
+    }
+  }
+
+  const images = (data.media || [])
+    .filter((m) => m.media_type === 'image')
+    .sort((a, b) => a.sort_order - b.sort_order)
+    .map((m) => ({
+      label: m.alt_text || `Image ${m.sort_order + 1}`,
+      alt: m.alt_text || data.name,
+      src: m.url,
+      active: m.is_primary,
+    }))
+
+  if (images.length === 0) {
+    images.push({ label: 'No image', alt: data.name, src: '', active: true })
+  }
+
+  const tiers = [
+    { id: 'tier-1', range: '1 - 9', price: unitPrice, discount: 'Standard' },
+    { id: 'tier-2', range: '10 - 49', price: unitPrice * 0.9, discount: '-10%' },
+    { id: 'tier-3', range: '50 - 99', price: unitPrice * 0.83, discount: '-17% VIP' },
+    { id: 'tier-4', range: '100+', price: unitPrice * 0.73, discount: '-26% MSA' },
+  ]
+
+  const unitSymbol = data.base_unit?.symbol || unitName
+
+  return {
+    id: data.code,
+    sku: data.sku || data.code,
+    name: data.name,
+    description: data.description || data.short_description || '',
+    mpn: data.sku || data.code,
+    supplier: {
+      name: data.supplier?.name || data.supplier_code || 'Unknown',
+      id: data.supplier?.code || data.supplier_code || '',
+      tier: 'Tier 1 MRO',
+      audited: true,
+      onTimeSla: '99.4%',
+      qualityDefect: '< 0.02%',
+      terms: 'Net 30',
+      compliance: [],
+    },
+    pricing: {
+      unitPrice,
+      unit: unitSymbol,
+      tiers,
+    },
+    stock: [],
+    totalStock: 0,
+    specs,
+    images,
+    artifacts: [],
+    category: [data.category?.name || data.category_code || 'Products'],
+    unspsc: data.category_code || '',
+    certifications: data.is_featured ? ['Featured Product'] : [],
+  }
+}
+
+export default defineEventHandler(async (event) => {
+  const sku = getRouterParam(event, 'sku')
+  if (!sku) {
+    throw createError({ statusCode: 400, message: 'Missing product SKU' })
+  }
+
+  const config = resolveUpstreamConfig()
+  const requestId = getHeader(event, 'x-request-id') || crypto.randomUUID()
+
+  const upstreamPath = `/catalog/products/${encodeURIComponent(sku)}`
+
+  try {
+    const result = await request(
+      {
+        baseUrl: config.baseUrl,
+        timeoutMs: config.timeoutMs,
+        requestId,
+      },
+      'GET',
+      upstreamPath,
+    )
+
+    if (result.status === 404) {
+      throw createError({ statusCode: 404, message: 'Product not found' })
+    }
+
+    if (result.status !== 200) {
+      throw createError({
+        statusCode: result.status,
+        message: `Upstream catalog returned ${result.status}`,
+      })
+    }
+
+    const data = result.body as UpstreamProductDetailResponse
+    return mapProductDetail(data.product)
+  } catch (error) {
+    if (error && typeof error === 'object' && 'statusCode' in error) {
+      throw error
+    }
+    throw createError({
+      statusCode: 502,
+      message: 'Failed to reach catalog service',
+    })
+  }
 })

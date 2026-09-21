@@ -1,150 +1,122 @@
 import type { CatalogProduct } from '~~/shared/catalog'
+import { resolveUpstreamConfig } from '../utils/config'
+import { request } from '../utils/upstream-client'
 
-const MOCK_PRODUCTS: CatalogProduct[] = [
-  {
-    id: '1',
-    sku: 'VLV-IND-9021',
-    name: 'High-Pressure Solenoid Valve 24V DC',
-    description: 'Proportional pneumatic regulation, IP65 rated, DIN EN ISO 4414 compliant.',
-    supplier: 'Festo Authorized',
-    price: 142.5,
-    unit: 'unit',
-    bulkPrice: 118.0,
-    bulkLabel: 'Tier 1 Bulk: $118.00 at MOQ 10+',
-    stock: 450,
-    stockLabel: '450 units available',
-    warehouse: '2 Regional Warehouses',
-    leadTime: 'next-day',
-    specs: '24V DC - Proportional - IP65',
-    lowStock: false,
-    moq: 1,
-  },
-  {
-    id: '2',
-    sku: 'MTR-EL-4402',
-    name: 'Industrial Stepper Motor NEMA 34',
-    description: '8.5 Nm torque, 1.8-degree step, Class H insulation.',
-    supplier: 'Apex Dynamics',
-    price: 285.0,
-    unit: 'unit',
-    stock: 82,
-    stockLabel: '82 units in stock, MOQ: 2 Units',
-    warehouse: 'FOB Chicago East',
-    leadTime: 'next-day',
-    specs: '8.5 Nm - 1.8 deg - Class H',
-    lowStock: false,
-    moq: 2,
-  },
-  {
-    id: '3',
-    sku: 'CBL-NET-8831',
-    name: 'Cat6A Industrial Shielded Cable (500m)',
-    description: 'S/FTP PUR jacket, 10M flex cycle rated, RoHS & UL AWM.',
-    supplier: 'Belden Sourced',
-    price: 620.0,
-    unit: 'spool',
-    bulkPrice: 1.24,
-    bulkLabel: '$1.24/meter, Immediate Dispatch',
-    stock: 34,
-    stockLabel: '34 spools in stock',
-    warehouse: 'RoHS & UL AWM',
-    leadTime: '3-5-days',
-    specs: 'S/FTP - PUR - 10M Flex',
-    lowStock: false,
-    moq: 1,
-  },
-  {
-    id: '4',
-    sku: 'HYD-CYL-102',
-    name: 'Hydraulic Cylinder Double Acting 50mm Bore',
-    description: '210 bar rated, ISO 6020/2 compliant, FKM seals.',
-    supplier: 'Parker Hannifin',
-    price: 410.0,
-    unit: 'unit',
-    stock: 14,
-    stockLabel: '14 units remaining',
-    warehouse: 'Factory replen: 8d',
-    leadTime: 'factory-direct',
-    specs: '210 Bar - ISO 6020/2',
-    lowStock: true,
-    moq: 1,
-  },
-  {
-    id: '5',
-    sku: 'BRG-FL-772',
-    name: 'Heavy Duty Flange Bearing Unit 40mm',
-    description: '4-bolt square, cast iron housing, 30.7kN dynamic load.',
-    supplier: 'SKF Authorized',
-    price: 54.2,
-    unit: 'unit',
-    bulkPrice: 48.5,
-    bulkLabel: 'Case of 10: $48.50, In Stock Hub 1',
-    stock: 1200,
-    stockLabel: '1,200 available',
-    warehouse: 'Multi-hub inventory',
-    leadTime: 'next-day',
-    specs: '4-Bolt Square - Cast Iron - 30.7kN',
-    lowStock: false,
-    moq: 1,
-  },
-  {
-    id: '6',
-    sku: 'SW-EST-019',
-    name: 'Emergency Stop Pushbutton IP67',
-    description: '22mm turn-to-release, SIL 3 rated, IP67 sealed.',
-    supplier: 'Schneider Electric',
-    price: 38.9,
-    unit: 'unit',
-    bulkPrice: 35.0,
-    bulkLabel: 'Pack of 5: $175.00',
-    stock: 310,
-    stockLabel: '310 available',
-    warehouse: 'Next-day ready',
-    leadTime: 'next-day',
-    specs: '22mm Turn-release - SIL 3',
-    lowStock: false,
-    moq: 1,
-  },
-]
+interface UpstreamProductSummary {
+  code: string
+  slug: string
+  name: string
+  short_description: string
+  category_code: string
+  brand_code: string
+  handling_class: string
+  base_unit_code: string
+  supplier_code: string
+  status: string
+  is_active: boolean
+  is_featured: boolean
+  base_price_minor: number | null
+  currency: string
+  track_inventory: boolean
+  created_at: string
+  updated_at: string
+  published_at: string
+}
 
-export default defineEventHandler((event) => {
+interface UpstreamProductListResponse {
+  items: UpstreamProductSummary[]
+  page: number
+  page_size: number
+  total: number
+  has_next: boolean
+  facets: Array<{
+    facet_type: string
+    value_id: string
+    value_name: string
+    count: number
+  }>
+}
+
+function mapProduct(item: UpstreamProductSummary): CatalogProduct {
+  const priceMinor = item.base_price_minor ?? 0
+  return {
+    id: item.code,
+    sku: item.code,
+    name: item.name,
+    description: item.short_description || '',
+    supplier: item.supplier_code || '',
+    price: priceMinor / 100,
+    unit: item.base_unit_code || 'unit',
+    stock: 0,
+    stockLabel: 'Check availability',
+    warehouse: '',
+    leadTime: '',
+    specs: item.handling_class || '',
+    lowStock: false,
+    moq: 1,
+  }
+}
+
+export default defineEventHandler(async (event) => {
   const query = getQuery(event)
   const page = Number(query.page) || 1
-  const perPage = Number(query.perPage) || 24
-  const sortBy = String(query.sortBy || 'contract_low')
-  const q = String(query.q || '').toLowerCase()
-  const suppliers = query.suppliers ? String(query.suppliers).split(',') : []
+  const pageSize = Number(query.perPage) || 24
+  const q = query.q ? String(query.q) : undefined
+  const category = query.category ? String(query.category) : undefined
+  const brand = query.brand ? String(query.brand) : undefined
+  const supplier = query.supplier ? String(query.supplier) : undefined
+  const sort = query.sortBy ? String(query.sortBy) : undefined
 
-  let filtered = [...MOCK_PRODUCTS]
+  const config = resolveUpstreamConfig()
+  const requestId = getHeader(event, 'x-request-id') || crypto.randomUUID()
 
-  if (q) {
-    filtered = filtered.filter(
-      (p) =>
-        p.name.toLowerCase().includes(q) ||
-        p.sku.toLowerCase().includes(q) ||
-        p.description.toLowerCase().includes(q),
+  const params = new URLSearchParams()
+  params.set('page', String(page))
+  params.set('page_size', String(pageSize))
+  if (q) params.set('q', q)
+  if (category) params.set('category', category)
+  if (brand) params.set('brand', brand)
+  if (supplier) params.set('supplier', supplier)
+  if (sort) params.set('sort', sort)
+
+  const upstreamPath = `/catalog/products?${params.toString()}`
+
+  try {
+    const result = await request(
+      {
+        baseUrl: config.baseUrl,
+        timeoutMs: config.timeoutMs,
+        requestId,
+      },
+      'GET',
+      upstreamPath,
     )
-  }
 
-  if (suppliers.length) {
-    filtered = filtered.filter((p) => suppliers.includes(p.supplier))
-  }
+    if (result.status !== 200) {
+      throw createError({
+        statusCode: result.status,
+        message: `Upstream catalog returned ${result.status}`,
+      })
+    }
 
-  // Sort
-  if (sortBy === 'contract_low') {
-    filtered.sort((a, b) => a.price - b.price)
-  } else if (sortBy === 'stock_high') {
-    filtered.sort((a, b) => b.stock - a.stock)
-  }
+    const data = result.body as UpstreamProductListResponse
+    const products = (data.items || []).map(mapProduct)
 
-  const start = (page - 1) * perPage
-  const products = filtered.slice(start, start + perPage)
-
-  return {
-    products,
-    total: filtered.length,
-    page,
-    perPage,
-    sortBy,
+    return {
+      products,
+      total: data.total || 0,
+      page: data.page || page,
+      perPage: data.page_size || pageSize,
+      hasNext: data.has_next || false,
+      facets: data.facets || [],
+    }
+  } catch (error) {
+    if (error && typeof error === 'object' && 'statusCode' in error) {
+      throw error
+    }
+    throw createError({
+      statusCode: 502,
+      message: 'Failed to reach catalog service',
+    })
   }
 })

@@ -36,6 +36,7 @@ import (
 	"github.com/atlas-platform/backend/internal/server"
 	"github.com/atlas-platform/backend/internal/storage"
 	"github.com/atlas-platform/backend/internal/worker"
+	"github.com/go-chi/chi/v5"
 )
 
 var version = "dev"
@@ -122,86 +123,89 @@ func main() {
 	healthHandler := health.New(db, nil, version)
 	srv := server.New(cfg, healthHandler)
 
-	// Register identity module routes
+	// Collect module handlers for the API dispatcher.
+	// chi v5 does not allow multiple Mount("/", ...) calls, so we use a
+	// dispatcher that tries each module's chi.Router sequentially.
+	var moduleHandlers []http.Handler
+
+	// Identity
 	identityRouter := identity.Router
 	identityRouter.RegisterRoutes(
 		authMiddleware(authService),
-		adminMiddleware(nil), // TODO: Implement admin service
+		adminMiddleware(nil),
 	)
-	srv.Router().Mount("/api/v1", identityRouter.ChiRouter())
+	moduleHandlers = append(moduleHandlers, identityRouter.ChiRouter())
 
-	// Register catalog module routes
+	// Catalog
 	catalogRouter := catalog.New(catalogServices)
 	catalogRouter.RegisterRoutes()
-	srv.Router().Mount("/api/v1", catalogRouter.ChiRouter())
+	moduleHandlers = append(moduleHandlers, catalogRouter.ChiRouter())
 
-	// Register pricing module routes
+	// Pricing
 	pricingRouter := pricing.New(pricingServices)
 	pricingRouter.RegisterRoutes()
-	srv.Router().Mount("/api/v1", pricingRouter.ChiRouter())
+	moduleHandlers = append(moduleHandlers, pricingRouter.ChiRouter())
 
-	// Register inventory module routes
+	// Inventory
 	inventoryRouter := inventory.New(inventoryService)
 	inventoryRouter.RegisterRoutes(
 		authMiddleware(authService),
-		adminMiddleware(nil), // TODO: Implement admin permission check (inventory.quarantine)
+		adminMiddleware(nil),
 	)
-	srv.Router().Mount("/api/v1", inventoryRouter.ChiRouter())
+	moduleHandlers = append(moduleHandlers, inventoryRouter.ChiRouter())
 
-	// Register commerce module routes
+	// Commerce
 	commerceRouter := commerce.New(commerceService)
 	commerceRouter.RegisterRoutes(
 		authMiddleware(authService),
 		adminMiddleware(nil),
 	)
-	srv.Router().Mount("/api/v1", commerceRouter.ChiRouter())
+	moduleHandlers = append(moduleHandlers, commerceRouter.ChiRouter())
 
-	// Register promotions module routes
+	// Promotions
 	promotionsRouter := promotions.New(promotionService)
 	promotionsRouter.RegisterRoutes(
 		authMiddleware(authService),
 		adminMiddleware(nil),
 	)
-	srv.Router().Mount("/api/v1", promotionsRouter.ChiRouter())
+	moduleHandlers = append(moduleHandlers, promotionsRouter.ChiRouter())
 
-	// Register payments module routes
+	// Payments
 	paymentsRouter := payments.New(paymentService)
 	paymentsRouter.RegisterRoutes(
 		authMiddleware(authService),
 		adminMiddleware(nil),
 	)
-	srv.Router().Mount("/api/v1", paymentsRouter.ChiRouter())
-	// Provider webhooks mount outside /api/v1 per contract.
-	srv.Router().Mount("/", paymentsRouter.WebhookRouter())
+	moduleHandlers = append(moduleHandlers, paymentsRouter.ChiRouter())
 
-	// Register CRM module routes
+	// CRM
 	crmService := crm.NewService(db)
 	crmRouter := crm.New(crmService)
 	crmRouter.RegisterRoutes(
 		authMiddleware(authService),
 		adminMiddleware(nil),
 	)
-	srv.Router().Mount("/api/v1", crmRouter.ChiRouter())
+	moduleHandlers = append(moduleHandlers, crmRouter.ChiRouter())
 
-	// Register Reports module routes
+	// Reports
 	reportsService := reports.NewService(db)
 	reportsRouter := reports.New(reportsService)
 	reportsRouter.RegisterRoutes(
 		authMiddleware(authService),
 		adminMiddleware(nil),
 	)
-	srv.Router().Mount("/api/v1", reportsRouter.ChiRouter())
+	moduleHandlers = append(moduleHandlers, reportsRouter.ChiRouter())
 
-	// Register CMS module routes
+	// CMS
 	cmsService := cms.NewService(db)
 	cmsRouter := cms.New(cmsService)
 	cmsRouter.RegisterRoutes(
 		authMiddleware(authService),
 		adminMiddleware(nil),
 	)
-	srv.Router().Mount("/api/v1", cmsRouter.ChiRouter())
+	moduleHandlers = append(moduleHandlers, cmsRouter.ChiRouter())
 
-	// Register suppliers module routes
+	// Suppliers
 	supplierService := suppliers.NewService(db)
 	supplierService.SetPortalDependencies(
 		catalog_repo.NewSupplierRepository(db),
@@ -215,9 +219,9 @@ func main() {
 		authMiddleware(authService),
 		adminMiddleware(nil),
 	)
-	srv.Router().Mount("/api/v1", supplierRouter.ChiRouter())
+	moduleHandlers = append(moduleHandlers, supplierRouter.ChiRouter())
 
-	// Register ERP module routes
+	// ERP
 	erpService := erp.NewService(db)
 	erpService.SetWebhookSecret(erpWebhookSecret())
 	erpRouter := erp.New(erpService)
@@ -225,22 +229,41 @@ func main() {
 		authMiddleware(authService),
 		adminMiddleware(nil),
 	)
-	srv.Router().Mount("/api/v1", erpRouter.ChiRouter())
-	srv.Router().Mount("/", erpRouter.WebhookRouter())
+	moduleHandlers = append(moduleHandlers, erpRouter.ChiRouter())
 
-	// Register platform module routes
+	// Platform
 	platformService := platform.NewService(db)
 	platformRouter := platform.New(platformService)
 	platformRouter.RegisterRoutes(
 		authMiddleware(authService),
 		adminMiddleware(nil),
 	)
-	srv.Router().Mount("/api/v1", platformRouter.ChiRouter())
+	moduleHandlers = append(moduleHandlers, platformRouter.ChiRouter())
 
-	// Register AI module routes
+	// AI — registers routes directly on a dedicated chi.Router instead of
+	// calling Register(apiRouter) which requires the shared router.
 	aiService := ai.NewService(db)
-	aiRouter := ai.New(aiService)
-	aiRouter.Register(srv.Router())
+	aiTempRouter := chi.NewRouter()
+	ai.New(aiService).Register(aiTempRouter)
+	moduleHandlers = append(moduleHandlers, aiTempRouter)
+
+	// Mount the API dispatcher at /api/v1. The dispatcher strips the
+	// prefix before forwarding to module handlers.
+	apiDispatcher := server.NewModuleDispatcher("/api/v1", moduleHandlers...)
+	srv.Router().Handle("/api/v1/*", apiDispatcher)
+
+	// /api/v1/ping — lightweight liveness probe under the API prefix.
+	srv.Router().Get("/api/v1/ping", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"ok"}`))
+	})
+
+	// Provider webhooks live outside /api/v1 per contract.
+	webhookDispatcher := server.NewModuleDispatcher("",
+		paymentsRouter.WebhookRouter(),
+		erpRouter.WebhookRouter(),
+	)
+	srv.Router().Handle("/webhooks/*", webhookDispatcher)
 
 	// Start export worker
 	storageRoot := os.Getenv("EXPORT_STORAGE_DIR")
