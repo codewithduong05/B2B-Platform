@@ -1,7 +1,20 @@
+/**
+ * Atlas B2B SRM Platform — Design Tokens
+ * Design System: "Enterprise Operational Precision"
+ * Source: Stitch (projects/4437078058782272259)
+ * Last synced: 2026-09-21
+ *
+ * Color Mode: LIGHT
+ * Color Variant: FIDELITY
+ * Primary: #000000 | Secondary: #0051d5 | Tertiary: #7c3aed
+ * Font: Inter | Roundness: ROUND_FOUR (4px)
+ */
 :root {
   color-scheme: light;
 
-  /* ── Surface & Background ── */
+  /* ══════════════════════════════════════════════════
+     SURFACE & BACKGROUND
+     ══════════════════════════════════════════════════ */
   --bg: #f8f9ff;
   --surface: #ffffff;
   --surface-dim: #cbdbf5;
@@ -14,7 +27,9 @@
   --surface-variant: #d3e4fe;
   --surface-tint: #565e74;
 
-  /* ── Text ── */
+  /* ══════════════════════════════════════════════════
+     TEXT (Ink)
+     ══════════════════════════════════════════════════ */
   --text: #0f172a;
   --text-secondary: #334155;
   --muted: #64748b;
@@ -22,20 +37,27 @@
   --on-surface-variant: #45464d;
   --on-background: #0b1c30;
 
-  /* ── Inverse ── */
+  /* ══════════════════════════════════════════════════
+     INVERSE
+     ══════════════════════════════════════════════════ */
   --inverse-surface: #213145;
   --inverse-on-surface: #eaf1ff;
   --inverse-primary: #bec6e0;
 
-  /* ── Outlines ── */
+  /* ══════════════════════════════════════════════════
+     OUTLINES & BORDERS
+     ══════════════════════════════════════════════════ */
   --border: #e2e8f0;
   --border-strong: #cbd5e1;
   --outline: #76777d;
   --outline-variant: #c6c6cd;
 
-  /* ── Primary ── */
+  /* ══════════════════════════════════════════════════
+     PRIMARY (Brand Action / Black)
+     ══════════════════════════════════════════════════ */
   --accent: #000000;
   --accent-hover: #1e293b;
+  --accent-active: #020617;
   --on-primary: #ffffff;
   --primary-container: #131b2e;
   --on-primary-container: #7c839b;
@@ -44,8 +66,11 @@
   --on-primary-fixed: #131b2e;
   --on-primary-fixed-variant: #3f465c;
 
-  /* ── Secondary ── */
+  /* ══════════════════════════════════════════════════
+     SECONDARY (Interactive Blue)
+     ══════════════════════════════════════════════════ */
   --secondary: #0051d5;
+  --secondary-hover: #1d4ed8;
   --on-secondary: #ffffff;
   --secondary-container: #316bf3;
   --on-secondary-container: #fefcff;
@@ -54,8 +79,10 @@
   --on-secondary-fixed: #00174b;
   --on-secondary-fixed-variant: #003ea8;
 
-  /* ── Tertiary ── */
-  --tertiary: #000000;
+  /* ══════════════════════════════════════════════════
+     TERTIARY (Financial / Purple)
+     ══════════════════════════════════════════════════ */
+  --tertiary: #7c3aed;
   --on-tertiary: #ffffff;
   --tertiary-container: #25005a;
   --on-tertiary-container: #9863ff;
@@ -64,14 +91,18 @@
   --on-tertiary-fixed: #25005a;
   --on-tertiary-fixed-variant: #5a00c6;
 
-  /* ── Error ── */
-  --error: #b91c1c;
+  /* ══════════════════════════════════════════════════
+     ERROR
+     ══════════════════════════════════════════════════ */
+  --error: #ba1a1a;
   --error-bg: #fef2f2;
   --on-error: #ffffff;
   --error-container: #ffdad6;
   --on-error-container: #93000a;
 
-  /* ── Status ── */
+  /* ══════════════════════════════════════════════════
+     STATUS BADGES (Tripartite: text / 15% bg / 30% border)
+     ══════════════════════════════════════════════════ */
   --status-ok: #059669;
   --status-ok-bg: #ecfdf5;
   --status-ok-border: #a7f3d0;
@@ -87,20 +118,25 @@
   --status-archived: #475569;
   --status-archived-bg: #f8fafc;
   --status-archived-border: #e2e8f0;
-  --status-warning: #b45309;
 
-  /* ── Financial/Quotes ── */
+  /* ══════════════════════════════════════════════════
+     FINANCIAL / QUOTES
+     ══════════════════════════════════════════════════ */
   --financial: #7c3aed;
   --financial-bg: #f5f3ff;
   --financial-border: #ddd6fe;
 
-  /* ── Elevation Shadows ── */
+  /* ══════════════════════════════════════════════════
+     ELEVATION SHADOWS (Low-contrast architectural)
+     ══════════════════════════════════════════════════ */
   --shadow-none: none;
   --shadow-1: 0 1px 2px 0 rgba(15, 23, 42, 0.05);
   --shadow-2: 0 4px 6px -1px rgba(15, 23, 42, 0.08), 0 2px 4px -2px rgba(15, 23, 42, 0.04);
   --shadow-3: 0 20px 25px -5px rgba(15, 23, 42, 0.12), 0 8px 10px -6px rgba(15, 23, 42, 0.06);
 
-  /* ── Spacing ── */
+  /* ══════════════════════════════════════════════════
+     SPACING
+     ══════════════════════════════════════════════════ */
   --space-xs: 0.25rem;
   --space-sm: 0.5rem;
   --space-md: 0.75rem;
@@ -112,62 +148,141 @@
   --margin: 1.5rem;
   --margin-admin: 1rem;
 
-  /* ── Border Radius ── */
-  --radius-sm: 0.125rem;
-  --radius: 0.25rem;
-  --radius-md: 0.375rem;
-  --radius-lg: 0.5rem;
-  --radius-xl: 0.75rem;
+  /* ══════════════════════════════════════════════════
+     BORDER RADIUS (ROUND_FOUR — 4px base)
+     ══════════════════════════════════════════════════ */
+  --radius-sm: 0.125rem;   /* 2px */
+  --radius: 0.25rem;       /* 4px — primary geometry */
+  --radius-md: 0.375rem;   /* 6px — secondary geometry */
+  --radius-lg: 0.5rem;     /* 8px — containers */
+  --radius-xl: 0.75rem;    /* 12px */
   --radius-full: 9999px;
 
-  /* ── Typography ── */
+  /* ══════════════════════════════════════════════════
+     TYPOGRAPHY — Font Family
+     ══════════════════════════════════════════════════ */
   --font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
 
-  --text-display-lg: 2rem; /* 32px */
-  --line-display-lg: 2.5rem; /* 40px */
-
-  --text-headline-lg: 1.5rem; /* 24px */
-  --line-headline-lg: 2rem; /* 32px */
-
-  --text-headline-md: 1.25rem; /* 20px */
-  --line-headline-md: 1.75rem; /* 28px */
-
-  --text-headline-sm: 1rem; /* 16px */
-  --line-headline-sm: 1.5rem; /* 24px */
-
-  --text-body-lg: 1rem; /* 16px */
-  --line-body-lg: 1.5rem; /* 24px */
-
-  --text-body-md: 0.875rem; /* 14px */
-  --line-body-md: 1.25rem; /* 20px */
-
-  --text-body-sm: 0.75rem; /* 12px */
-  --line-body-sm: 1rem; /* 16px */
-
-  --text-label-md: 0.8125rem; /* 13px */
-  --line-label-md: 1.125rem; /* 18px */
-
-  --text-label-sm: 0.6875rem; /* 11px */
-  --line-label-sm: 0.875rem; /* 14px */
-
-  --text-tabular-lg: 1.25rem; /* 20px */
-  --line-tabular-lg: 1.5rem; /* 24px */
-
-  --text-tabular-md: 0.875rem; /* 14px */
-  --line-tabular-md: 1.25rem; /* 20px */
-
-  --text-tabular-sm: 0.75rem; /* 12px */
-  --line-tabular-sm: 1rem; /* 16px */
-
+  /* ══════════════════════════════════════════════════
+     TYPOGRAPHY — Display
+     ══════════════════════════════════════════════════ */
+  --text-display-lg: 2rem;       /* 32px */
+  --weight-display-lg: 600;
+  --line-display-lg: 2.5rem;     /* 40px */
   --tracking-display: -0.02em;
+
+  /* ══════════════════════════════════════════════════
+     TYPOGRAPHY — Headlines
+     ══════════════════════════════════════════════════ */
+  --text-headline-lg: 1.5rem;    /* 24px */
+  --weight-headline-lg: 600;
+  --line-headline-lg: 2rem;      /* 32px */
   --tracking-headline-lg: -0.015em;
+
+  --text-headline-md: 1.25rem;   /* 20px */
+  --weight-headline-md: 600;
+  --line-headline-md: 1.75rem;   /* 28px */
   --tracking-headline-md: -0.01em;
+
+  --text-headline-sm: 1rem;      /* 16px */
+  --weight-headline-sm: 600;
+  --line-headline-sm: 1.5rem;    /* 24px */
   --tracking-headline-sm: -0.005em;
-  --tracking-label: 0.01em;
+
+  /* ══════════════════════════════════════════════════
+     TYPOGRAPHY — Body
+     ══════════════════════════════════════════════════ */
+  --text-body-lg: 1rem;          /* 16px */
+  --weight-body-lg: 400;
+  --line-body-lg: 1.5rem;        /* 24px */
+
+  --text-body-md: 0.875rem;      /* 14px */
+  --weight-body-md: 400;
+  --line-body-md: 1.25rem;       /* 20px */
+
+  --text-body-sm: 0.75rem;       /* 12px */
+  --weight-body-sm: 400;
+  --line-body-sm: 1rem;          /* 16px */
+
+  /* ══════════════════════════════════════════════════
+     TYPOGRAPHY — Labels
+     ══════════════════════════════════════════════════ */
+  --text-label-md: 0.8125rem;    /* 13px */
+  --weight-label-md: 500;
+  --line-label-md: 1.125rem;     /* 18px */
+  --tracking-label-md: 0.01em;
+
+  --text-label-sm: 0.6875rem;    /* 11px */
+  --weight-label-sm: 600;
+  --line-label-sm: 0.875rem;     /* 14px */
   --tracking-label-sm: 0.04em;
+
+  /* ══════════════════════════════════════════════════
+     TYPOGRAPHY — Tabular Numeric (Financial/Precision)
+     ══════════════════════════════════════════════════ */
+  --text-tabular-lg: 1.25rem;    /* 20px */
+  --weight-tabular-lg: 600;
+  --line-tabular-lg: 1.5rem;     /* 24px */
+  --tracking-tabular-lg: -0.01em;
+
+  --text-tabular-md: 0.875rem;   /* 14px */
+  --weight-tabular-md: 500;
+  --line-tabular-md: 1.25rem;    /* 20px */
+
+  --text-tabular-sm: 0.75rem;    /* 12px */
+  --weight-tabular-sm: 500;
+  --line-tabular-sm: 1rem;       /* 16px */
+
+  /* ══════════════════════════════════════════════════
+     COMPONENT — Buttons
+     ══════════════════════════════════════════════════ */
+  --btn-height: 2.5rem;         /* 40px — Storefront */
+  --btn-height-admin: 2rem;     /* 32px — Admin Console */
+  --btn-radius: var(--radius);
+  --btn-font-size: var(--text-label-md);
+  --btn-font-weight: 600;
+
+  /* ══════════════════════════════════════════════════
+     COMPONENT — Inputs
+     ══════════════════════════════════════════════════ */
+  --input-height: 2.5rem;       /* 40px — Storefront */
+  --input-height-admin: 2.25rem;/* 36px — Admin Console */
+  --input-radius: var(--radius);
+  --input-border: var(--border-strong);
+  --input-bg: var(--surface);
+
+  /* ══════════════════════════════════════════════════
+     COMPONENT — Data Grid Tables (Admin)
+     ══════════════════════════════════════════════════ */
+  --grid-header-bg: #f8fafc;
+  --grid-header-height: 2.25rem; /* 36px */
+  --grid-row-height: 2.75rem;   /* 44px */
+  --grid-row-height-compact: 2.25rem; /* 36px */
+  --grid-row-hover: #f8fafc;
+  --grid-row-selected: #eff6ff;
+  --grid-row-selected-border: 2px solid #2563eb;
+  --grid-border: 1px solid #e2e8f0;
+
+  /* ══════════════════════════════════════════════════
+     COMPONENT — Status Badge
+     ══════════════════════════════════════════════════ */
+  --badge-font-size: var(--text-label-sm);
+  --badge-font-weight: 600;
+  --badge-radius: var(--radius);
+  --badge-padding: 2px var(--space-sm);
+
+  /* ══════════════════════════════════════════════════
+     COMPONENT — Cards
+     ══════════════════════════════════════════════════ */
+  --card-bg: var(--surface);
+  --card-border: 1px solid var(--border);
+  --card-radius: var(--radius-md); /* 6px */
+  --card-padding: var(--space-lg);
 }
 
-/* ── Global Reset ── */
+/* ══════════════════════════════════════════════════════════
+   GLOBAL RESET
+   ══════════════════════════════════════════════════════════ */
 *,
 *::before,
 *::after {
@@ -180,10 +295,14 @@ body {
   color: var(--on-surface);
   font-family: var(--font-family);
   font-size: var(--text-body-md);
+  font-weight: var(--weight-body-md);
   line-height: var(--line-body-md);
 }
 
-/* ── Tabular Numerics ── */
+/* ══════════════════════════════════════════════════════════
+   TABULAR NUMERICS — Financial Precision
+   OpenType: tabular lining numbers, zero with slash
+   ══════════════════════════════════════════════════════════ */
 .tabular-nums {
   font-variant-numeric: tabular-nums;
   font-feature-settings:
@@ -192,14 +311,18 @@ body {
     'cv11' 1;
 }
 
-/* ── Shell ── */
+/* ══════════════════════════════════════════════════════════
+   APP SHELL — Buyer Storefront (1440px max)
+   ══════════════════════════════════════════════════════════ */
 .app-shell {
   max-width: 1440px;
   margin: 0 auto;
   padding: var(--margin);
 }
 
-/* ── Panels ── */
+/* ══════════════════════════════════════════════════════════
+   PANELS
+   ══════════════════════════════════════════════════════════ */
 .panel {
   background-color: var(--surface);
   border: 1px solid var(--border);
@@ -210,11 +333,13 @@ body {
 .panel-header {
   margin: 0 0 var(--space-lg);
   font-size: var(--text-headline-sm);
-  font-weight: 600;
+  font-weight: var(--weight-headline-sm);
   letter-spacing: var(--tracking-headline-sm);
 }
 
-/* ── Status ── */
+/* ══════════════════════════════════════════════════════════
+   STATUS UTILITIES
+   ══════════════════════════════════════════════════════════ */
 .muted {
   color: var(--muted);
   margin: 0;
@@ -228,20 +353,22 @@ body {
   color: var(--status-warning);
 }
 
-/* ── Buttons ── */
+/* ══════════════════════════════════════════════════════════
+   BUTTONS
+   ══════════════════════════════════════════════════════════ */
 .button {
   display: inline-flex;
   align-items: center;
   gap: var(--space-xs);
   padding: 0 var(--space-md);
-  height: 40px;
+  height: var(--btn-height);
   border: 1px solid transparent;
-  border-radius: var(--radius);
+  border-radius: var(--btn-radius);
   background-color: var(--accent);
   color: var(--on-primary);
   font-family: var(--font-family);
-  font-size: var(--text-label-md);
-  font-weight: 600;
+  font-size: var(--btn-font-size);
+  font-weight: var(--btn-font-weight);
   line-height: var(--line-label-md);
   text-decoration: none;
   cursor: pointer;
@@ -250,6 +377,10 @@ body {
 
 .button:hover {
   background-color: var(--accent-hover);
+}
+
+.button:active {
+  background-color: var(--accent-active);
 }
 
 .button-secondary {
@@ -272,7 +403,9 @@ body {
   color: var(--on-surface);
 }
 
-/* ── Notices ── */
+/* ══════════════════════════════════════════════════════════
+   NOTICES
+   ══════════════════════════════════════════════════════════ */
 .notice {
   padding: var(--space-lg);
   border: 1px solid var(--border);
@@ -316,15 +449,17 @@ body {
   color: var(--muted);
 }
 
-/* ── Badges ── */
+/* ══════════════════════════════════════════════════════════
+   BADGES — Status Indicators
+   ══════════════════════════════════════════════════════════ */
 .badge {
   display: inline-flex;
   align-items: center;
   gap: var(--space-xs);
-  padding: 2px var(--space-sm);
-  border-radius: var(--radius);
-  font-size: var(--text-label-sm);
-  font-weight: 600;
+  padding: var(--badge-padding);
+  border-radius: var(--badge-radius);
+  font-size: var(--badge-font-size);
+  font-weight: var(--badge-font-weight);
   line-height: var(--line-label-sm);
   letter-spacing: var(--tracking-label-sm);
   text-transform: uppercase;
@@ -360,12 +495,14 @@ body {
   border: 1px solid var(--financial-border);
 }
 
-/* ── Cards ── */
+/* ══════════════════════════════════════════════════════════
+   CARDS
+   ══════════════════════════════════════════════════════════ */
 .card {
-  background-color: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-lg);
+  background-color: var(--card-bg);
+  border: var(--card-border);
+  border-radius: var(--card-radius);
+  padding: var(--card-padding);
   box-shadow: var(--shadow-1);
   transition: box-shadow 0.15s ease;
 }
@@ -374,13 +511,15 @@ body {
   box-shadow: var(--shadow-2);
 }
 
-/* ── Inputs ── */
+/* ══════════════════════════════════════════════════════════
+   INPUTS
+   ══════════════════════════════════════════════════════════ */
 .input {
-  height: 40px;
+  height: var(--input-height);
   padding: 0 var(--space-md);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius);
-  background-color: var(--surface);
+  border: 1px solid var(--input-border);
+  border-radius: var(--input-radius);
+  background-color: var(--input-bg);
   font-family: var(--font-family);
   font-size: var(--text-body-md);
   color: var(--on-surface);
@@ -404,14 +543,16 @@ body {
   box-shadow: 0 0 0 1px var(--status-critical);
 }
 
-/* ── Tabs ── */
+/* ══════════════════════════════════════════════════════════
+   TABS
+   ══════════════════════════════════════════════════════════ */
 .tab {
   display: inline-flex;
   align-items: center;
   padding: var(--space-sm) var(--space-md);
   border-radius: var(--radius);
   font-size: var(--text-label-md);
-  font-weight: 500;
+  font-weight: var(--weight-label-md);
   color: var(--muted);
   cursor: pointer;
   transition:
@@ -430,7 +571,9 @@ body {
   box-shadow: var(--shadow-1);
 }
 
-/* ── Progress Bar ── */
+/* ══════════════════════════════════════════════════════════
+   PROGRESS BAR
+   ══════════════════════════════════════════════════════════ */
 .progress-bar {
   width: 100%;
   height: 6px;
