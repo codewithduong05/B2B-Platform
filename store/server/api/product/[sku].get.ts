@@ -201,7 +201,7 @@ export default defineEventHandler(async (event) => {
   const config = resolveUpstreamConfig()
   const requestId = getHeader(event, 'x-request-id') || crypto.randomUUID()
 
-  const upstreamPath = `/catalog/products/${encodeURIComponent(sku)}`
+  const upstreamPath = `/api/v1/catalog/products/${encodeURIComponent(sku)}`
 
   try {
     const result = await request(

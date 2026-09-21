@@ -129,19 +129,19 @@ SELECT
     created_at, updated_at, published_at, deleted_at
 FROM catalog.product,
     (SELECT
-        $1::catalog.product_status AS p_status,
+        $1::text AS p_status,
         $2::bigint AS p_category_id,
         $3::bigint AS p_brand_id,
-        $4::catalog_handling_class_type AS p_handling_class,
+        $4::text AS p_handling_class,
         $5::bigint AS p_supplier_id,
         $6::text AS p_query
     ) params
 WHERE deleted_at IS NULL
-  AND (params.p_status IS NULL OR status = params.p_status)
-  AND (params.p_category_id IS NULL OR category_id = params.p_category_id)
-  AND (params.p_brand_id IS NULL OR brand_id = params.p_brand_id)
-  AND (params.p_handling_class IS NULL OR handling_class = params.p_handling_class)
-  AND (params.p_supplier_id IS NULL OR supplier_id = params.p_supplier_id)
+  AND (params.p_status = '' OR status = params.p_status::catalog.product_status)
+  AND (params.p_category_id = 0 OR category_id = params.p_category_id)
+  AND (params.p_brand_id = 0 OR brand_id = params.p_brand_id)
+  AND (params.p_handling_class = '' OR handling_class = params.p_handling_class::catalog_handling_class_type)
+  AND (params.p_supplier_id = 0 OR supplier_id = params.p_supplier_id)
   AND (params.p_query IS NULL OR name ILIKE '%' || params.p_query || '%' OR description ILIKE '%' || params.p_query || '%')
 ORDER BY
     CASE WHEN $7 = 'name_asc' THEN name END ASC,
@@ -157,19 +157,19 @@ LIMIT $8 OFFSET $9;
 SELECT COUNT(*)
 FROM catalog.product,
     (SELECT
-        $1::catalog.product_status AS p_status,
+        $1::text AS p_status,
         $2::bigint AS p_category_id,
         $3::bigint AS p_brand_id,
-        $4::catalog_handling_class_type AS p_handling_class,
+        $4::text AS p_handling_class,
         $5::bigint AS p_supplier_id,
         $6::text AS p_query
     ) params
 WHERE deleted_at IS NULL
-  AND (params.p_status IS NULL OR status = params.p_status)
-  AND (params.p_category_id IS NULL OR category_id = params.p_category_id)
-  AND (params.p_brand_id IS NULL OR brand_id = params.p_brand_id)
-  AND (params.p_handling_class IS NULL OR handling_class = params.p_handling_class)
-  AND (params.p_supplier_id IS NULL OR supplier_id = params.p_supplier_id)
+  AND (params.p_status = '' OR status = params.p_status::catalog.product_status)
+  AND (params.p_category_id = 0 OR category_id = params.p_category_id)
+  AND (params.p_brand_id = 0 OR brand_id = params.p_brand_id)
+  AND (params.p_handling_class = '' OR handling_class = params.p_handling_class::catalog_handling_class_type)
+  AND (params.p_supplier_id = 0 OR supplier_id = params.p_supplier_id)
   AND (params.p_query IS NULL OR name ILIKE '%' || params.p_query || '%' OR description ILIKE '%' || params.p_query || '%');
 
 -- name: SearchProducts :many
@@ -203,10 +203,10 @@ LEFT JOIN catalog.unit u ON p.base_unit_id = u.id AND u.deleted_at IS NULL
 WHERE p.deleted_at IS NULL
   AND p.status = 'published'
   AND p.is_active = TRUE
-  AND ($2::bigint IS NULL OR p.category_id = $2)
-  AND ($3::bigint IS NULL OR p.brand_id = $3)
-  AND ($4::catalog_handling_class_type IS NULL OR p.handling_class = $4)
-  AND ($5::bigint IS NULL OR p.supplier_id = $5)
+  AND ($2::bigint = 0 OR p.category_id = $2)
+  AND ($3::bigint = 0 OR p.brand_id = $3)
+  AND ($4::catalog_handling_class_type = '' OR p.handling_class = $4)
+  AND ($5::bigint = 0 OR p.supplier_id = $5)
   AND (
     $1 = ''
     OR p.name ILIKE '%' || $1 || '%'
@@ -228,10 +228,10 @@ LEFT JOIN catalog.brand b ON p.brand_id = b.id AND b.deleted_at IS NULL
 WHERE p.deleted_at IS NULL
   AND p.status = 'published'
   AND p.is_active = TRUE
-  AND ($1::bigint IS NULL OR p.category_id = $1)
-  AND ($2::bigint IS NULL OR p.brand_id = $2)
-  AND ($3::catalog_handling_class_type IS NULL OR p.handling_class = $3)
-  AND ($4::bigint IS NULL OR p.supplier_id = $4)
+  AND ($1::bigint = 0 OR p.category_id = $1)
+  AND ($2::bigint = 0 OR p.brand_id = $2)
+  AND ($3::catalog_handling_class_type = '' OR p.handling_class = $3)
+  AND ($4::bigint = 0 OR p.supplier_id = $4)
   AND (
     $5 = ''
     OR p.name ILIKE '%' || $5 || '%'
@@ -333,7 +333,7 @@ SELECT id, code, name, slug, description, parent_id, sort_order,
        is_active, seo_title, seo_description, created_at, updated_at, deleted_at
 FROM catalog.category
 WHERE deleted_at IS NULL
-  AND ($1::int8 IS NULL OR parent_id = $1)
+  AND ($1::int8 = 0 OR parent_id = $1)
 ORDER BY sort_order, name
 LIMIT $2 OFFSET $3;
 
@@ -341,7 +341,7 @@ LIMIT $2 OFFSET $3;
 SELECT COUNT(*)
 FROM catalog.category
 WHERE deleted_at IS NULL
-  AND ($1::int8 IS NULL OR parent_id = $1);
+  AND ($1::int8 = 0 OR parent_id = $1);
 
 -- name: CreateBrand :one
 INSERT INTO catalog.brand (
@@ -460,7 +460,7 @@ WHERE deleted_at IS NULL AND is_active = TRUE;
 -- name: ListHandlingClasses :many
 SELECT id, code, name, description, sort_order,
        temperature_min_c, temperature_max_c,
-       created_at, updated_at, deleted_at
+       is_active, created_at, updated_at, deleted_at
 FROM catalog.handling_class
 WHERE deleted_at IS NULL
 ORDER BY sort_order, name;
@@ -468,14 +468,14 @@ ORDER BY sort_order, name;
 -- name: GetHandlingClassByID :one
 SELECT id, code, name, description, sort_order,
        temperature_min_c, temperature_max_c,
-       created_at, updated_at, deleted_at
+       is_active, created_at, updated_at, deleted_at
 FROM catalog.handling_class
 WHERE id = $1 AND deleted_at IS NULL;
 
 -- name: GetHandlingClassByCode :one
 SELECT id, code, name, description, sort_order,
        temperature_min_c, temperature_max_c,
-       created_at, updated_at, deleted_at
+       is_active, created_at, updated_at, deleted_at
 FROM catalog.handling_class
 WHERE code = $1 AND deleted_at IS NULL;
 
@@ -669,14 +669,14 @@ WITH filtered_products AS (
         (SELECT
             $1::bigint AS p_category_id,
             $2::bigint AS p_brand_id,
-            $3::catalog_handling_class_type AS p_handling_class,
+            $3::text AS p_handling_class,
             $4::bigint AS p_supplier_id,
             $5::text AS p_query
         ) params
     WHERE p.deleted_at IS NULL AND p.status = 'published' AND p.is_active = TRUE
       AND (params.p_category_id IS NULL OR p.category_id = params.p_category_id)
       AND (params.p_brand_id IS NULL OR p.brand_id = params.p_brand_id)
-      AND (params.p_handling_class IS NULL OR p.handling_class = params.p_handling_class)
+      AND (params.p_handling_class = '' OR p.handling_class = params.p_handling_class::catalog_handling_class_type)
       AND (params.p_supplier_id IS NULL OR p.supplier_id = params.p_supplier_id)
       AND (params.p_query IS NULL OR p.name ILIKE '%' || params.p_query || '%' OR p.description ILIKE '%' || params.p_query || '%')
 )
@@ -694,7 +694,7 @@ JOIN catalog.brand b ON prod.brand_id = b.id
 WHERE b.deleted_at IS NULL AND b.is_active = TRUE
 GROUP BY b.code, b.name
 UNION ALL
-SELECT 'handling_class' AS facet_type, prod.handling_class AS value_id, hc.name AS value_name, COUNT(DISTINCT fp.id) AS count
+SELECT 'handling_class' AS facet_type, prod.handling_class::text AS value_id, hc.name::text AS value_name, COUNT(DISTINCT fp.id) AS count
 FROM filtered_products fp
 JOIN catalog.product prod ON fp.id = prod.id
 JOIN catalog.handling_class hc ON prod.handling_class = hc.name
@@ -723,6 +723,6 @@ JOIN catalog.attribute a ON pa.attribute_id = a.id AND a.deleted_at IS NULL
 JOIN catalog.attribute_value av ON pa.attribute_value_id = av.id AND av.deleted_at IS NULL
 JOIN catalog.product p ON pa.product_id = p.id AND p.deleted_at IS NULL AND p.status = 'published' AND p.is_active = TRUE
 WHERE a.is_filterable = TRUE
-  AND ($1::int8 IS NULL OR a.id = $1)
+  AND ($1::int8 = 0 OR a.id = $1)
 GROUP BY a.id, a.code, a.name, a.attribute_type, av.id, av.value
 ORDER BY a.sort_order, a.name, av.sort_order, av.value;

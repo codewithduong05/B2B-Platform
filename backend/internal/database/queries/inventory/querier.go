@@ -9,9 +9,11 @@ import (
 )
 
 type Querier interface {
+	AdjustLotQuantities(ctx context.Context, arg AdjustLotQuantitiesParams) (InventoryLot, error)
 	CreateLot(ctx context.Context, arg CreateLotParams) (InventoryLot, error)
 	CreateQuarantineRecord(ctx context.Context, arg CreateQuarantineRecordParams) (InventoryQuarantineRecord, error)
 	CreateReservation(ctx context.Context, arg CreateReservationParams) (InventoryReservation, error)
+	CreateStockAdjustment(ctx context.Context, arg CreateStockAdjustmentParams) (InventoryStockAdjustment, error)
 	CreateStockLevel(ctx context.Context, arg CreateStockLevelParams) (InventoryStockLevel, error)
 	FindExpiredReservations(ctx context.Context) ([]InventoryReservation, error)
 	GetFEFOLotsForUpdate(ctx context.Context, stockLevelID int64) ([]InventoryLot, error)
@@ -19,6 +21,8 @@ type Querier interface {
 	GetLotByID(ctx context.Context, id int64) (InventoryLot, error)
 	GetLotByIDForUpdate(ctx context.Context, id int64) (InventoryLot, error)
 	GetLotByStockAndNumberForUpdate(ctx context.Context, arg GetLotByStockAndNumberForUpdateParams) (InventoryLot, error)
+	GetQuarantineRecordByLot(ctx context.Context, lotID int64) (InventoryQuarantineRecord, error)
+	GetQuarantineRecordByLotAndStatus(ctx context.Context, arg GetQuarantineRecordByLotAndStatusParams) (InventoryQuarantineRecord, error)
 	GetReservationByCode(ctx context.Context, code string) (InventoryReservation, error)
 	GetReservationByID(ctx context.Context, id int64) (InventoryReservation, error)
 	GetReservationsByRequestID(ctx context.Context, requestID string) ([]InventoryReservation, error)
@@ -26,11 +30,16 @@ type Querier interface {
 	GetStockLevelByID(ctx context.Context, id int64) (InventoryStockLevel, error)
 	GetStockLevelByIDForUpdate(ctx context.Context, id int64) (InventoryStockLevel, error)
 	GetStockLevelByProductAndSupplier(ctx context.Context, arg GetStockLevelByProductAndSupplierParams) (InventoryStockLevel, error)
+	ListExpiringLots(ctx context.Context) ([]ListExpiringLotsRow, error)
+	ListLowStockLots(ctx context.Context) ([]ListLowStockLotsRow, error)
 	ListStockLevels(ctx context.Context, productID int64) ([]InventoryStockLevel, error)
 	QuarantineLot(ctx context.Context, id int64) (InventoryLot, error)
+	ReleaseLot(ctx context.Context, arg ReleaseLotParams) (InventoryLot, error)
 	UpdateLotQuantities(ctx context.Context, arg UpdateLotQuantitiesParams) (InventoryLot, error)
+	UpdateQuarantineRecordStatus(ctx context.Context, arg UpdateQuarantineRecordStatusParams) (InventoryQuarantineRecord, error)
 	UpdateReservationStatus(ctx context.Context, arg UpdateReservationStatusParams) (InventoryReservation, error)
 	UpdateStockLevelQuantities(ctx context.Context, arg UpdateStockLevelQuantitiesParams) (InventoryStockLevel, error)
+	UpdateStockLevelQuantitiesOnAdjustment(ctx context.Context, arg UpdateStockLevelQuantitiesOnAdjustmentParams) (InventoryStockLevel, error)
 }
 
 var _ Querier = (*Queries)(nil)

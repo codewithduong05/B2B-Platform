@@ -762,8 +762,71 @@ func (rt *Router) handleAdminDeleteSupplier(w http.ResponseWriter, r *http.Reque
 
 // Helper methods
 func (rt *Router) decodeQuery(r *http.Request, dest interface{}) error {
-	// Simple query parameter decoding - in production use a proper library
-	// For now, manually parse common parameters
+	values := r.URL.Query()
+
+	// Parse pagination for any request type
+	parsePage := func() int {
+		if v := values.Get("page"); v != "" {
+			n := 0
+			for _, c := range v {
+				if c >= '0' && c <= '9' {
+					n = n*10 + int(c-'0')
+				}
+			}
+			if n > 0 {
+				return n
+			}
+		}
+		return 1
+	}
+	parsePageSize := func(defaultSize int) int {
+		if v := values.Get("page_size"); v != "" {
+			n := 0
+			for _, c := range v {
+				if c >= '0' && c <= '9' {
+					n = n*10 + int(c-'0')
+				}
+			}
+			if n > 0 {
+				return n
+			}
+		}
+		return defaultSize
+	}
+
+	switch d := dest.(type) {
+	case *schema.ProductListRequest:
+		d.Page = parsePage()
+		d.PageSize = parsePageSize(24)
+		if v := values.Get("category"); v != "" {
+			d.Category = &v
+		}
+		if v := values.Get("brand"); v != "" {
+			d.Brand = &v
+		}
+		if v := values.Get("handling_class"); v != "" {
+			d.HandlingClass = &v
+		}
+		if v := values.Get("supplier"); v != "" {
+			d.Supplier = &v
+		}
+		if v := values.Get("q"); v != "" {
+			d.Query = &v
+		}
+		if v := values.Get("sort"); v != "" {
+			d.Sort = &v
+		}
+	case *schema.CategoryListRequest:
+		d.Page = parsePage()
+		d.PageSize = parsePageSize(50)
+		if v := values.Get("parent"); v != "" {
+			d.Parent = &v
+		}
+	case *schema.BrandListRequest:
+		d.Page = parsePage()
+		d.PageSize = parsePageSize(50)
+	}
+
 	return nil
 }
 

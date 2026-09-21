@@ -170,10 +170,10 @@ func (r *ProductRepository) ListProducts(ctx context.Context, limit, offset int3
 	}
 
 	params := catalog.ListProductsParams{
-		Column1: status,
+		Column1: string(status),
 		Column2: categoryID,
 		Column3: brandID,
-		Column4: handlingClass,
+		Column4: string(handlingClass),
 		Column5: supplierID,
 		Column6: query,
 		Column7: sort,
@@ -212,10 +212,10 @@ func (r *ProductRepository) CountProducts(ctx context.Context, filters ProductLi
 	}
 
 	params := catalog.CountProductsParams{
-		Column1: status,
+		Column1: string(status),
 		Column2: categoryID,
 		Column3: brandID,
-		Column4: handlingClass,
+		Column4: string(handlingClass),
 		Column5: supplierID,
 		Column6: query,
 	}
@@ -672,7 +672,7 @@ func (r *FacetRepository) GetFilteredFacets(ctx context.Context, filters Product
 	params := catalog.GetFilteredFacetsParams{
 		Column1: categoryID,
 		Column2: brandID,
-		Column3: handlingClass,
+		Column3: string(handlingClass),
 		Column4: supplierID,
 		Column5: query,
 	}

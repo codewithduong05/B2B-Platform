@@ -40,7 +40,7 @@ const countCategories = `-- name: CountCategories :one
 SELECT COUNT(*)
 FROM catalog.category
 WHERE deleted_at IS NULL
-  AND ($1::int8 IS NULL OR parent_id = $1)
+  AND ($1::int8 = 0 OR parent_id = $1)
 `
 
 func (q *Queries) CountCategories(ctx context.Context, dollar_1 int64) (int64, error) {
@@ -54,29 +54,29 @@ const countProducts = `-- name: CountProducts :one
 SELECT COUNT(*)
 FROM catalog.product,
     (SELECT
-        $1::catalog.product_status AS p_status,
+        $1::text AS p_status,
         $2::bigint AS p_category_id,
         $3::bigint AS p_brand_id,
-        $4::catalog_handling_class_type AS p_handling_class,
+        $4::text AS p_handling_class,
         $5::bigint AS p_supplier_id,
         $6::text AS p_query
     ) params
 WHERE deleted_at IS NULL
-  AND (params.p_status IS NULL OR status = params.p_status)
-  AND (params.p_category_id IS NULL OR category_id = params.p_category_id)
-  AND (params.p_brand_id IS NULL OR brand_id = params.p_brand_id)
-  AND (params.p_handling_class IS NULL OR handling_class = params.p_handling_class)
-  AND (params.p_supplier_id IS NULL OR supplier_id = params.p_supplier_id)
+  AND (params.p_status = '' OR status = params.p_status::catalog.product_status)
+  AND (params.p_category_id = 0 OR category_id = params.p_category_id)
+  AND (params.p_brand_id = 0 OR brand_id = params.p_brand_id)
+  AND (params.p_handling_class = '' OR handling_class = params.p_handling_class::catalog_handling_class_type)
+  AND (params.p_supplier_id = 0 OR supplier_id = params.p_supplier_id)
   AND (params.p_query IS NULL OR name ILIKE '%' || params.p_query || '%' OR description ILIKE '%' || params.p_query || '%')
 `
 
 type CountProductsParams struct {
-	Column1 CatalogProductStatus     `json:"column_1"`
-	Column2 int64                    `json:"column_2"`
-	Column3 int64                    `json:"column_3"`
-	Column4 CatalogHandlingClassType `json:"column_4"`
-	Column5 int64                    `json:"column_5"`
-	Column6 string                   `json:"column_6"`
+	Column1 string `json:"column_1"`
+	Column2 int64  `json:"column_2"`
+	Column3 int64  `json:"column_3"`
+	Column4 string `json:"column_4"`
+	Column5 int64  `json:"column_5"`
+	Column6 string `json:"column_6"`
 }
 
 func (q *Queries) CountProducts(ctx context.Context, arg CountProductsParams) (int64, error) {
@@ -101,10 +101,10 @@ LEFT JOIN catalog.brand b ON p.brand_id = b.id AND b.deleted_at IS NULL
 WHERE p.deleted_at IS NULL
   AND p.status = 'published'
   AND p.is_active = TRUE
-  AND ($1::bigint IS NULL OR p.category_id = $1)
-  AND ($2::bigint IS NULL OR p.brand_id = $2)
-  AND ($3::catalog_handling_class_type IS NULL OR p.handling_class = $3)
-  AND ($4::bigint IS NULL OR p.supplier_id = $4)
+  AND ($1::bigint = 0 OR p.category_id = $1)
+  AND ($2::bigint = 0 OR p.brand_id = $2)
+  AND ($3::catalog_handling_class_type = '' OR p.handling_class = $3)
+  AND ($4::bigint = 0 OR p.supplier_id = $4)
   AND (
     $5 = ''
     OR p.name ILIKE '%' || $5 || '%'
@@ -612,7 +612,7 @@ JOIN catalog.attribute a ON pa.attribute_id = a.id AND a.deleted_at IS NULL
 JOIN catalog.attribute_value av ON pa.attribute_value_id = av.id AND av.deleted_at IS NULL
 JOIN catalog.product p ON pa.product_id = p.id AND p.deleted_at IS NULL AND p.status = 'published' AND p.is_active = TRUE
 WHERE a.is_filterable = TRUE
-  AND ($1::int8 IS NULL OR a.id = $1)
+  AND ($1::int8 = 0 OR a.id = $1)
 GROUP BY a.id, a.code, a.name, a.attribute_type, av.id, av.value
 ORDER BY a.sort_order, a.name, av.sort_order, av.value
 `
@@ -1065,14 +1065,14 @@ WITH filtered_products AS (
         (SELECT
             $1::bigint AS p_category_id,
             $2::bigint AS p_brand_id,
-            $3::catalog_handling_class_type AS p_handling_class,
+            $3::text AS p_handling_class,
             $4::bigint AS p_supplier_id,
             $5::text AS p_query
         ) params
     WHERE p.deleted_at IS NULL AND p.status = 'published' AND p.is_active = TRUE
       AND (params.p_category_id IS NULL OR p.category_id = params.p_category_id)
       AND (params.p_brand_id IS NULL OR p.brand_id = params.p_brand_id)
-      AND (params.p_handling_class IS NULL OR p.handling_class = params.p_handling_class)
+      AND (params.p_handling_class = '' OR p.handling_class = params.p_handling_class::catalog_handling_class_type)
       AND (params.p_supplier_id IS NULL OR p.supplier_id = params.p_supplier_id)
       AND (params.p_query IS NULL OR p.name ILIKE '%' || params.p_query || '%' OR p.description ILIKE '%' || params.p_query || '%')
 )
@@ -1090,7 +1090,7 @@ JOIN catalog.brand b ON prod.brand_id = b.id
 WHERE b.deleted_at IS NULL AND b.is_active = TRUE
 GROUP BY b.code, b.name
 UNION ALL
-SELECT 'handling_class' AS facet_type, prod.handling_class AS value_id, hc.name AS value_name, COUNT(DISTINCT fp.id) AS count
+SELECT 'handling_class' AS facet_type, prod.handling_class::text AS value_id, hc.name::text AS value_name, COUNT(DISTINCT fp.id) AS count
 FROM filtered_products fp
 JOIN catalog.product prod ON fp.id = prod.id
 JOIN catalog.handling_class hc ON prod.handling_class = hc.name
@@ -1107,11 +1107,11 @@ ORDER BY facet_type, value_name
 `
 
 type GetFilteredFacetsParams struct {
-	Column1 int64                    `json:"column_1"`
-	Column2 int64                    `json:"column_2"`
-	Column3 CatalogHandlingClassType `json:"column_3"`
-	Column4 int64                    `json:"column_4"`
-	Column5 string                   `json:"column_5"`
+	Column1 int64  `json:"column_1"`
+	Column2 int64  `json:"column_2"`
+	Column3 string `json:"column_3"`
+	Column4 int64  `json:"column_4"`
+	Column5 string `json:"column_5"`
 }
 
 type GetFilteredFacetsRow struct {
@@ -1155,7 +1155,7 @@ func (q *Queries) GetFilteredFacets(ctx context.Context, arg GetFilteredFacetsPa
 const getHandlingClassByCode = `-- name: GetHandlingClassByCode :one
 SELECT id, code, name, description, sort_order,
        temperature_min_c, temperature_max_c,
-       created_at, updated_at, deleted_at
+       is_active, created_at, updated_at, deleted_at
 FROM catalog.handling_class
 WHERE code = $1 AND deleted_at IS NULL
 `
@@ -1171,6 +1171,7 @@ func (q *Queries) GetHandlingClassByCode(ctx context.Context, code string) (Cata
 		&i.SortOrder,
 		&i.TemperatureMinC,
 		&i.TemperatureMaxC,
+		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
@@ -1181,7 +1182,7 @@ func (q *Queries) GetHandlingClassByCode(ctx context.Context, code string) (Cata
 const getHandlingClassByID = `-- name: GetHandlingClassByID :one
 SELECT id, code, name, description, sort_order,
        temperature_min_c, temperature_max_c,
-       created_at, updated_at, deleted_at
+       is_active, created_at, updated_at, deleted_at
 FROM catalog.handling_class
 WHERE id = $1 AND deleted_at IS NULL
 `
@@ -1197,6 +1198,7 @@ func (q *Queries) GetHandlingClassByID(ctx context.Context, id int64) (CatalogHa
 		&i.SortOrder,
 		&i.TemperatureMinC,
 		&i.TemperatureMaxC,
+		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
@@ -1725,7 +1727,7 @@ SELECT id, code, name, slug, description, parent_id, sort_order,
        is_active, seo_title, seo_description, created_at, updated_at, deleted_at
 FROM catalog.category
 WHERE deleted_at IS NULL
-  AND ($1::int8 IS NULL OR parent_id = $1)
+  AND ($1::int8 = 0 OR parent_id = $1)
 ORDER BY sort_order, name
 LIMIT $2 OFFSET $3
 `
@@ -1773,7 +1775,7 @@ func (q *Queries) ListCategories(ctx context.Context, arg ListCategoriesParams) 
 const listHandlingClasses = `-- name: ListHandlingClasses :many
 SELECT id, code, name, description, sort_order,
        temperature_min_c, temperature_max_c,
-       created_at, updated_at, deleted_at
+       is_active, created_at, updated_at, deleted_at
 FROM catalog.handling_class
 WHERE deleted_at IS NULL
 ORDER BY sort_order, name
@@ -1796,6 +1798,7 @@ func (q *Queries) ListHandlingClasses(ctx context.Context) ([]CatalogHandlingCla
 			&i.SortOrder,
 			&i.TemperatureMinC,
 			&i.TemperatureMaxC,
+			&i.IsActive,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
@@ -1994,19 +1997,19 @@ SELECT
     created_at, updated_at, published_at, deleted_at
 FROM catalog.product,
     (SELECT
-        $1::catalog.product_status AS p_status,
+        $1::text AS p_status,
         $2::bigint AS p_category_id,
         $3::bigint AS p_brand_id,
-        $4::catalog_handling_class_type AS p_handling_class,
+        $4::text AS p_handling_class,
         $5::bigint AS p_supplier_id,
         $6::text AS p_query
     ) params
 WHERE deleted_at IS NULL
-  AND (params.p_status IS NULL OR status = params.p_status)
-  AND (params.p_category_id IS NULL OR category_id = params.p_category_id)
-  AND (params.p_brand_id IS NULL OR brand_id = params.p_brand_id)
-  AND (params.p_handling_class IS NULL OR handling_class = params.p_handling_class)
-  AND (params.p_supplier_id IS NULL OR supplier_id = params.p_supplier_id)
+  AND (params.p_status = '' OR status = params.p_status::catalog.product_status)
+  AND (params.p_category_id = 0 OR category_id = params.p_category_id)
+  AND (params.p_brand_id = 0 OR brand_id = params.p_brand_id)
+  AND (params.p_handling_class = '' OR handling_class = params.p_handling_class::catalog_handling_class_type)
+  AND (params.p_supplier_id = 0 OR supplier_id = params.p_supplier_id)
   AND (params.p_query IS NULL OR name ILIKE '%' || params.p_query || '%' OR description ILIKE '%' || params.p_query || '%')
 ORDER BY
     CASE WHEN $7 = 'name_asc' THEN name END ASC,
@@ -2020,15 +2023,15 @@ LIMIT $8 OFFSET $9
 `
 
 type ListProductsParams struct {
-	Column1 CatalogProductStatus     `json:"column_1"`
-	Column2 int64                    `json:"column_2"`
-	Column3 int64                    `json:"column_3"`
-	Column4 CatalogHandlingClassType `json:"column_4"`
-	Column5 int64                    `json:"column_5"`
-	Column6 string                   `json:"column_6"`
-	Column7 interface{}              `json:"column_7"`
-	Limit   int32                    `json:"limit"`
-	Offset  int32                    `json:"offset"`
+	Column1 string      `json:"column_1"`
+	Column2 int64       `json:"column_2"`
+	Column3 int64       `json:"column_3"`
+	Column4 string      `json:"column_4"`
+	Column5 int64       `json:"column_5"`
+	Column6 string      `json:"column_6"`
+	Column7 interface{} `json:"column_7"`
+	Limit   int32       `json:"limit"`
+	Offset  int32       `json:"offset"`
 }
 
 type ListProductsRow struct {
@@ -2307,10 +2310,10 @@ LEFT JOIN catalog.unit u ON p.base_unit_id = u.id AND u.deleted_at IS NULL
 WHERE p.deleted_at IS NULL
   AND p.status = 'published'
   AND p.is_active = TRUE
-  AND ($2::bigint IS NULL OR p.category_id = $2)
-  AND ($3::bigint IS NULL OR p.brand_id = $3)
-  AND ($4::catalog_handling_class_type IS NULL OR p.handling_class = $4)
-  AND ($5::bigint IS NULL OR p.supplier_id = $5)
+  AND ($2::bigint = 0 OR p.category_id = $2)
+  AND ($3::bigint = 0 OR p.brand_id = $3)
+  AND ($4::catalog_handling_class_type = '' OR p.handling_class = $4)
+  AND ($5::bigint = 0 OR p.supplier_id = $5)
   AND (
     $1 = ''
     OR p.name ILIKE '%' || $1 || '%'

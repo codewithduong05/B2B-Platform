@@ -49,6 +49,7 @@ type Querier interface {
 	CreateVerificationDocument(ctx context.Context, arg CreateVerificationDocumentParams) (CreateVerificationDocumentRow, error)
 	DeletePurchaseScope(ctx context.Context, id int64) error
 	GetAddressByCode(ctx context.Context, code string) (IdentityAddress, error)
+	GetAddressByID(ctx context.Context, id int64) (IdentityAddress, error)
 	GetAddressesByOwner(ctx context.Context, arg GetAddressesByOwnerParams) ([]GetAddressesByOwnerRow, error)
 	GetBuyerProfileByCode(ctx context.Context, code string) (GetBuyerProfileByCodeRow, error)
 	GetBuyerProfileByUserID(ctx context.Context, userID int64) (GetBuyerProfileByUserIDRow, error)
@@ -88,6 +89,7 @@ type Querier interface {
 	SoftDeleteUser(ctx context.Context, id int64) error
 	UpdateAddress(ctx context.Context, arg UpdateAddressParams) (UpdateAddressRow, error)
 	UpdateBuyerProfile(ctx context.Context, arg UpdateBuyerProfileParams) (UpdateBuyerProfileRow, error)
+	UpdateBuyerProfileByUserID(ctx context.Context, arg UpdateBuyerProfileByUserIDParams) (UpdateBuyerProfileByUserIDRow, error)
 	UpdateCreditAccountExposure(ctx context.Context, arg UpdateCreditAccountExposureParams) error
 	UpdateCreditAccountHold(ctx context.Context, arg UpdateCreditAccountHoldParams) error
 	UpdateUser(ctx context.Context, arg UpdateUserParams) (UpdateUserRow, error)

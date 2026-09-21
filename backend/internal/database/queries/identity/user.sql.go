@@ -947,6 +947,44 @@ func (q *Queries) GetAddressByCode(ctx context.Context, code string) (IdentityAd
 	return i, err
 }
 
+const getAddressByID = `-- name: GetAddressByID :one
+SELECT id, code, owner_user_id, owner_type, label,
+       recipient_name, company_name, line1, line2,
+       city, state_province, postal_code, country,
+       phone, is_default, handling_class, delivery_instructions,
+       created_at, updated_at, deleted_at
+FROM identity.address
+WHERE id = $1 AND deleted_at IS NULL
+`
+
+func (q *Queries) GetAddressByID(ctx context.Context, id int64) (IdentityAddress, error) {
+	row := q.db.QueryRow(ctx, getAddressByID, id)
+	var i IdentityAddress
+	err := row.Scan(
+		&i.ID,
+		&i.Code,
+		&i.OwnerUserID,
+		&i.OwnerType,
+		&i.Label,
+		&i.RecipientName,
+		&i.CompanyName,
+		&i.Line1,
+		&i.Line2,
+		&i.City,
+		&i.StateProvince,
+		&i.PostalCode,
+		&i.Country,
+		&i.Phone,
+		&i.IsDefault,
+		&i.HandlingClass,
+		&i.DeliveryInstructions,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
 const getAddressesByOwner = `-- name: GetAddressesByOwner :many
 SELECT id, code, owner_user_id, owner_type, label,
        recipient_name, company_name, line1, line2,
@@ -2426,6 +2464,114 @@ func (q *Queries) UpdateBuyerProfile(ctx context.Context, arg UpdateBuyerProfile
 		&i.Code,
 		&i.UserID,
 		&i.BusinessName,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const updateBuyerProfileByUserID = `-- name: UpdateBuyerProfileByUserID :one
+UPDATE identity.buyer_profile
+SET business_name = COALESCE($2, business_name),
+    trading_name = COALESCE($3, trading_name),
+    tax_id = COALESCE($4, tax_id),
+    registration_number = COALESCE($5, registration_number),
+    phone = COALESCE($6, phone),
+    website = COALESCE($7, website),
+    industry = COALESCE($8, industry),
+    employee_count = COALESCE($9, employee_count),
+    annual_revenue_minor = COALESCE($10, annual_revenue_minor),
+    currency = COALESCE($11, currency),
+    credit_limit_minor = COALESCE($12, credit_limit_minor),
+    credit_terms_days = COALESCE($13, credit_terms_days),
+    is_on_credit_hold = COALESCE($14, is_on_credit_hold),
+    credit_hold_reason = COALESCE($15, credit_hold_reason),
+    updated_at = NOW()
+WHERE user_id = $1 AND deleted_at IS NULL
+RETURNING id, code, user_id, business_name, trading_name, tax_id,
+       registration_number, phone, website, industry,
+       employee_count, annual_revenue_minor, currency,
+       credit_limit_minor, credit_terms_days, is_on_credit_hold,
+       credit_hold_reason, created_at, updated_at
+`
+
+type UpdateBuyerProfileByUserIDParams struct {
+	UserID             int64       `json:"user_id"`
+	BusinessName       string      `json:"business_name"`
+	TradingName        pgtype.Text `json:"trading_name"`
+	TaxID              pgtype.Text `json:"tax_id"`
+	RegistrationNumber pgtype.Text `json:"registration_number"`
+	Phone              pgtype.Text `json:"phone"`
+	Website            pgtype.Text `json:"website"`
+	Industry           pgtype.Text `json:"industry"`
+	EmployeeCount      pgtype.Int4 `json:"employee_count"`
+	AnnualRevenueMinor pgtype.Int8 `json:"annual_revenue_minor"`
+	Currency           string      `json:"currency"`
+	CreditLimitMinor   pgtype.Int8 `json:"credit_limit_minor"`
+	CreditTermsDays    pgtype.Int4 `json:"credit_terms_days"`
+	IsOnCreditHold     bool        `json:"is_on_credit_hold"`
+	CreditHoldReason   pgtype.Text `json:"credit_hold_reason"`
+}
+
+type UpdateBuyerProfileByUserIDRow struct {
+	ID                 int64       `json:"id"`
+	Code               string      `json:"code"`
+	UserID             int64       `json:"user_id"`
+	BusinessName       string      `json:"business_name"`
+	TradingName        pgtype.Text `json:"trading_name"`
+	TaxID              pgtype.Text `json:"tax_id"`
+	RegistrationNumber pgtype.Text `json:"registration_number"`
+	Phone              pgtype.Text `json:"phone"`
+	Website            pgtype.Text `json:"website"`
+	Industry           pgtype.Text `json:"industry"`
+	EmployeeCount      pgtype.Int4 `json:"employee_count"`
+	AnnualRevenueMinor pgtype.Int8 `json:"annual_revenue_minor"`
+	Currency           string      `json:"currency"`
+	CreditLimitMinor   pgtype.Int8 `json:"credit_limit_minor"`
+	CreditTermsDays    pgtype.Int4 `json:"credit_terms_days"`
+	IsOnCreditHold     bool        `json:"is_on_credit_hold"`
+	CreditHoldReason   pgtype.Text `json:"credit_hold_reason"`
+	CreatedAt          time.Time   `json:"created_at"`
+	UpdatedAt          time.Time   `json:"updated_at"`
+}
+
+func (q *Queries) UpdateBuyerProfileByUserID(ctx context.Context, arg UpdateBuyerProfileByUserIDParams) (UpdateBuyerProfileByUserIDRow, error) {
+	row := q.db.QueryRow(ctx, updateBuyerProfileByUserID,
+		arg.UserID,
+		arg.BusinessName,
+		arg.TradingName,
+		arg.TaxID,
+		arg.RegistrationNumber,
+		arg.Phone,
+		arg.Website,
+		arg.Industry,
+		arg.EmployeeCount,
+		arg.AnnualRevenueMinor,
+		arg.Currency,
+		arg.CreditLimitMinor,
+		arg.CreditTermsDays,
+		arg.IsOnCreditHold,
+		arg.CreditHoldReason,
+	)
+	var i UpdateBuyerProfileByUserIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.Code,
+		&i.UserID,
+		&i.BusinessName,
+		&i.TradingName,
+		&i.TaxID,
+		&i.RegistrationNumber,
+		&i.Phone,
+		&i.Website,
+		&i.Industry,
+		&i.EmployeeCount,
+		&i.AnnualRevenueMinor,
+		&i.Currency,
+		&i.CreditLimitMinor,
+		&i.CreditTermsDays,
+		&i.IsOnCreditHold,
+		&i.CreditHoldReason,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)

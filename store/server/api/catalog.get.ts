@@ -40,8 +40,8 @@ interface UpstreamProductListResponse {
 function mapProduct(item: UpstreamProductSummary): CatalogProduct {
   const priceMinor = item.base_price_minor ?? 0
   return {
-    id: item.code,
-    sku: item.code,
+    id: item.slug,
+    sku: item.slug,
     name: item.name,
     description: item.short_description || '',
     supplier: item.supplier_code || '',
@@ -64,7 +64,8 @@ export default defineEventHandler(async (event) => {
   const q = query.q ? String(query.q) : undefined
   const category = query.category ? String(query.category) : undefined
   const brand = query.brand ? String(query.brand) : undefined
-  const supplier = query.supplier ? String(query.supplier) : undefined
+  const suppliersRaw = query.suppliers ? String(query.suppliers) : undefined
+  const supplier = suppliersRaw ? suppliersRaw.split(',')[0] : undefined
   const sort = query.sortBy ? String(query.sortBy) : undefined
 
   const config = resolveUpstreamConfig()
@@ -79,7 +80,7 @@ export default defineEventHandler(async (event) => {
   if (supplier) params.set('supplier', supplier)
   if (sort) params.set('sort', sort)
 
-  const upstreamPath = `/catalog/products?${params.toString()}`
+  const upstreamPath = `/api/v1/catalog/products?${params.toString()}`
 
   try {
     const result = await request(

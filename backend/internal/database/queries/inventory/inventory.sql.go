@@ -12,6 +12,41 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const adjustLotQuantities = `-- name: AdjustLotQuantities :one
+UPDATE inventory.lot
+SET available_quantity = available_quantity + $2,
+    updated_at = NOW()
+WHERE id = $1 AND deleted_at IS NULL
+RETURNING id, code, stock_level_id, lot_number, initial_quantity, available_quantity, reserved_quantity, status, is_quarantined, production_date, expires_at, created_at, updated_at, deleted_at
+`
+
+type AdjustLotQuantitiesParams struct {
+	ID                int64 `json:"id"`
+	AvailableQuantity int32 `json:"available_quantity"`
+}
+
+func (q *Queries) AdjustLotQuantities(ctx context.Context, arg AdjustLotQuantitiesParams) (InventoryLot, error) {
+	row := q.db.QueryRow(ctx, adjustLotQuantities, arg.ID, arg.AvailableQuantity)
+	var i InventoryLot
+	err := row.Scan(
+		&i.ID,
+		&i.Code,
+		&i.StockLevelID,
+		&i.LotNumber,
+		&i.InitialQuantity,
+		&i.AvailableQuantity,
+		&i.ReservedQuantity,
+		&i.Status,
+		&i.IsQuarantined,
+		&i.ProductionDate,
+		&i.ExpiresAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
 const createLot = `-- name: CreateLot :one
 INSERT INTO inventory.lot (
     code, stock_level_id, lot_number, initial_quantity, available_quantity, reserved_quantity, status, is_quarantined, production_date, expires_at
@@ -149,6 +184,53 @@ func (q *Queries) CreateReservation(ctx context.Context, arg CreateReservationPa
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+	)
+	return i, err
+}
+
+const createStockAdjustment = `-- name: CreateStockAdjustment :one
+INSERT INTO inventory.stock_adjustment (
+    code, lot_id, quantity_delta, previous_quantity, new_quantity,
+    reason_code, reason, adjusted_by
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8
+) RETURNING id, code, lot_id, quantity_delta, previous_quantity, new_quantity, reason_code, reason, adjusted_by, created_at
+`
+
+type CreateStockAdjustmentParams struct {
+	Code             string      `json:"code"`
+	LotID            int64       `json:"lot_id"`
+	QuantityDelta    int32       `json:"quantity_delta"`
+	PreviousQuantity int32       `json:"previous_quantity"`
+	NewQuantity      int32       `json:"new_quantity"`
+	ReasonCode       string      `json:"reason_code"`
+	Reason           string      `json:"reason"`
+	AdjustedBy       pgtype.Int8 `json:"adjusted_by"`
+}
+
+func (q *Queries) CreateStockAdjustment(ctx context.Context, arg CreateStockAdjustmentParams) (InventoryStockAdjustment, error) {
+	row := q.db.QueryRow(ctx, createStockAdjustment,
+		arg.Code,
+		arg.LotID,
+		arg.QuantityDelta,
+		arg.PreviousQuantity,
+		arg.NewQuantity,
+		arg.ReasonCode,
+		arg.Reason,
+		arg.AdjustedBy,
+	)
+	var i InventoryStockAdjustment
+	err := row.Scan(
+		&i.ID,
+		&i.Code,
+		&i.LotID,
+		&i.QuantityDelta,
+		&i.PreviousQuantity,
+		&i.NewQuantity,
+		&i.ReasonCode,
+		&i.Reason,
+		&i.AdjustedBy,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -399,6 +481,61 @@ func (q *Queries) GetLotByStockAndNumberForUpdate(ctx context.Context, arg GetLo
 	return i, err
 }
 
+const getQuarantineRecordByLot = `-- name: GetQuarantineRecordByLot :one
+SELECT id, code, lot_id, reason, status, adjusted_quantity, adjusted_by, created_at, updated_at, deleted_at FROM inventory.quarantine_record
+WHERE lot_id = $1 AND status = 'quarantined' AND deleted_at IS NULL
+ORDER BY created_at DESC
+LIMIT 1
+`
+
+func (q *Queries) GetQuarantineRecordByLot(ctx context.Context, lotID int64) (InventoryQuarantineRecord, error) {
+	row := q.db.QueryRow(ctx, getQuarantineRecordByLot, lotID)
+	var i InventoryQuarantineRecord
+	err := row.Scan(
+		&i.ID,
+		&i.Code,
+		&i.LotID,
+		&i.Reason,
+		&i.Status,
+		&i.AdjustedQuantity,
+		&i.AdjustedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
+const getQuarantineRecordByLotAndStatus = `-- name: GetQuarantineRecordByLotAndStatus :one
+SELECT id, code, lot_id, reason, status, adjusted_quantity, adjusted_by, created_at, updated_at, deleted_at FROM inventory.quarantine_record
+WHERE lot_id = $1 AND status = $2 AND deleted_at IS NULL
+ORDER BY created_at DESC
+LIMIT 1
+`
+
+type GetQuarantineRecordByLotAndStatusParams struct {
+	LotID  int64                     `json:"lot_id"`
+	Status InventoryQuarantineStatus `json:"status"`
+}
+
+func (q *Queries) GetQuarantineRecordByLotAndStatus(ctx context.Context, arg GetQuarantineRecordByLotAndStatusParams) (InventoryQuarantineRecord, error) {
+	row := q.db.QueryRow(ctx, getQuarantineRecordByLotAndStatus, arg.LotID, arg.Status)
+	var i InventoryQuarantineRecord
+	err := row.Scan(
+		&i.ID,
+		&i.Code,
+		&i.LotID,
+		&i.Reason,
+		&i.Status,
+		&i.AdjustedQuantity,
+		&i.AdjustedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
 const getReservationByCode = `-- name: GetReservationByCode :one
 SELECT id, code, lot_id, order_line_id, request_id, quantity, status, expires_at, created_at, updated_at, deleted_at FROM inventory.reservation
 WHERE code = $1 AND deleted_at IS NULL
@@ -600,6 +737,163 @@ func (q *Queries) GetStockLevelByProductAndSupplier(ctx context.Context, arg Get
 	return i, err
 }
 
+const listExpiringLots = `-- name: ListExpiringLots :many
+SELECT l.id, l.code, l.stock_level_id, l.lot_number, l.initial_quantity, l.available_quantity, l.reserved_quantity, l.status, l.is_quarantined, l.production_date, l.expires_at, l.created_at, l.updated_at, l.deleted_at, sl.product_id, sl.supplier_id,
+       p.code as product_code, p.name as product_name,
+       s.code as supplier_code
+FROM inventory.lot l
+JOIN inventory.stock_level sl ON sl.id = l.stock_level_id
+JOIN catalog.product p ON p.id = sl.product_id
+JOIN catalog.supplier s ON s.id = sl.supplier_id
+WHERE l.deleted_at IS NULL
+  AND l.is_quarantined = FALSE
+  AND l.status = 'active'
+  AND l.expires_at IS NOT NULL
+  AND l.expires_at <= NOW() + INTERVAL '$1 days'
+ORDER BY l.expires_at ASC
+`
+
+type ListExpiringLotsRow struct {
+	ID                int64              `json:"id"`
+	Code              string             `json:"code"`
+	StockLevelID      int64              `json:"stock_level_id"`
+	LotNumber         string             `json:"lot_number"`
+	InitialQuantity   int32              `json:"initial_quantity"`
+	AvailableQuantity int32              `json:"available_quantity"`
+	ReservedQuantity  int32              `json:"reserved_quantity"`
+	Status            InventoryLotStatus `json:"status"`
+	IsQuarantined     bool               `json:"is_quarantined"`
+	ProductionDate    pgtype.Date        `json:"production_date"`
+	ExpiresAt         pgtype.Timestamptz `json:"expires_at"`
+	CreatedAt         time.Time          `json:"created_at"`
+	UpdatedAt         time.Time          `json:"updated_at"`
+	DeletedAt         pgtype.Timestamptz `json:"deleted_at"`
+	ProductID         int64              `json:"product_id"`
+	SupplierID        int64              `json:"supplier_id"`
+	ProductCode       string             `json:"product_code"`
+	ProductName       string             `json:"product_name"`
+	SupplierCode      string             `json:"supplier_code"`
+}
+
+func (q *Queries) ListExpiringLots(ctx context.Context) ([]ListExpiringLotsRow, error) {
+	rows, err := q.db.Query(ctx, listExpiringLots)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListExpiringLotsRow{}
+	for rows.Next() {
+		var i ListExpiringLotsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Code,
+			&i.StockLevelID,
+			&i.LotNumber,
+			&i.InitialQuantity,
+			&i.AvailableQuantity,
+			&i.ReservedQuantity,
+			&i.Status,
+			&i.IsQuarantined,
+			&i.ProductionDate,
+			&i.ExpiresAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+			&i.ProductID,
+			&i.SupplierID,
+			&i.ProductCode,
+			&i.ProductName,
+			&i.SupplierCode,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listLowStockLots = `-- name: ListLowStockLots :many
+SELECT l.id, l.code, l.stock_level_id, l.lot_number, l.initial_quantity, l.available_quantity, l.reserved_quantity, l.status, l.is_quarantined, l.production_date, l.expires_at, l.created_at, l.updated_at, l.deleted_at, sl.product_id, sl.supplier_id, sl.safety_stock,
+       p.code as product_code, p.name as product_name,
+       s.code as supplier_code
+FROM inventory.lot l
+JOIN inventory.stock_level sl ON sl.id = l.stock_level_id
+JOIN catalog.product p ON p.id = sl.product_id
+JOIN catalog.supplier s ON s.id = sl.supplier_id
+WHERE l.deleted_at IS NULL
+  AND l.is_quarantined = FALSE
+  AND l.status = 'active'
+  AND l.available_quantity < sl.safety_stock
+ORDER BY (sl.safety_stock - l.available_quantity) DESC, l.expires_at ASC
+`
+
+type ListLowStockLotsRow struct {
+	ID                int64              `json:"id"`
+	Code              string             `json:"code"`
+	StockLevelID      int64              `json:"stock_level_id"`
+	LotNumber         string             `json:"lot_number"`
+	InitialQuantity   int32              `json:"initial_quantity"`
+	AvailableQuantity int32              `json:"available_quantity"`
+	ReservedQuantity  int32              `json:"reserved_quantity"`
+	Status            InventoryLotStatus `json:"status"`
+	IsQuarantined     bool               `json:"is_quarantined"`
+	ProductionDate    pgtype.Date        `json:"production_date"`
+	ExpiresAt         pgtype.Timestamptz `json:"expires_at"`
+	CreatedAt         time.Time          `json:"created_at"`
+	UpdatedAt         time.Time          `json:"updated_at"`
+	DeletedAt         pgtype.Timestamptz `json:"deleted_at"`
+	ProductID         int64              `json:"product_id"`
+	SupplierID        int64              `json:"supplier_id"`
+	SafetyStock       int32              `json:"safety_stock"`
+	ProductCode       string             `json:"product_code"`
+	ProductName       string             `json:"product_name"`
+	SupplierCode      string             `json:"supplier_code"`
+}
+
+func (q *Queries) ListLowStockLots(ctx context.Context) ([]ListLowStockLotsRow, error) {
+	rows, err := q.db.Query(ctx, listLowStockLots)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListLowStockLotsRow{}
+	for rows.Next() {
+		var i ListLowStockLotsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Code,
+			&i.StockLevelID,
+			&i.LotNumber,
+			&i.InitialQuantity,
+			&i.AvailableQuantity,
+			&i.ReservedQuantity,
+			&i.Status,
+			&i.IsQuarantined,
+			&i.ProductionDate,
+			&i.ExpiresAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+			&i.ProductID,
+			&i.SupplierID,
+			&i.SafetyStock,
+			&i.ProductCode,
+			&i.ProductName,
+			&i.SupplierCode,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listStockLevels = `-- name: ListStockLevels :many
 SELECT id, code, product_id, supplier_id, available_quantity, reserved_quantity, total_quantity, safety_stock, created_at, updated_at, deleted_at FROM inventory.stock_level
 WHERE product_id = $1 AND deleted_at IS NULL
@@ -669,6 +963,43 @@ func (q *Queries) QuarantineLot(ctx context.Context, id int64) (InventoryLot, er
 	return i, err
 }
 
+const releaseLot = `-- name: ReleaseLot :one
+UPDATE inventory.lot
+SET is_quarantined = FALSE,
+    status = 'active',
+    available_quantity = $2,
+    updated_at = NOW()
+WHERE id = $1 AND deleted_at IS NULL
+RETURNING id, code, stock_level_id, lot_number, initial_quantity, available_quantity, reserved_quantity, status, is_quarantined, production_date, expires_at, created_at, updated_at, deleted_at
+`
+
+type ReleaseLotParams struct {
+	ID                int64 `json:"id"`
+	AvailableQuantity int32 `json:"available_quantity"`
+}
+
+func (q *Queries) ReleaseLot(ctx context.Context, arg ReleaseLotParams) (InventoryLot, error) {
+	row := q.db.QueryRow(ctx, releaseLot, arg.ID, arg.AvailableQuantity)
+	var i InventoryLot
+	err := row.Scan(
+		&i.ID,
+		&i.Code,
+		&i.StockLevelID,
+		&i.LotNumber,
+		&i.InitialQuantity,
+		&i.AvailableQuantity,
+		&i.ReservedQuantity,
+		&i.Status,
+		&i.IsQuarantined,
+		&i.ProductionDate,
+		&i.ExpiresAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
 const updateLotQuantities = `-- name: UpdateLotQuantities :one
 UPDATE inventory.lot
 SET available_quantity = $2,
@@ -706,6 +1037,38 @@ func (q *Queries) UpdateLotQuantities(ctx context.Context, arg UpdateLotQuantiti
 		&i.IsQuarantined,
 		&i.ProductionDate,
 		&i.ExpiresAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
+const updateQuarantineRecordStatus = `-- name: UpdateQuarantineRecordStatus :one
+UPDATE inventory.quarantine_record
+SET status = 'released',
+    adjusted_quantity = $2,
+    updated_at = NOW()
+WHERE id = $1 AND deleted_at IS NULL
+RETURNING id, code, lot_id, reason, status, adjusted_quantity, adjusted_by, created_at, updated_at, deleted_at
+`
+
+type UpdateQuarantineRecordStatusParams struct {
+	ID               int64 `json:"id"`
+	AdjustedQuantity int32 `json:"adjusted_quantity"`
+}
+
+func (q *Queries) UpdateQuarantineRecordStatus(ctx context.Context, arg UpdateQuarantineRecordStatusParams) (InventoryQuarantineRecord, error) {
+	row := q.db.QueryRow(ctx, updateQuarantineRecordStatus, arg.ID, arg.AdjustedQuantity)
+	var i InventoryQuarantineRecord
+	err := row.Scan(
+		&i.ID,
+		&i.Code,
+		&i.LotID,
+		&i.Reason,
+		&i.Status,
+		&i.AdjustedQuantity,
+		&i.AdjustedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
@@ -769,6 +1132,39 @@ func (q *Queries) UpdateStockLevelQuantities(ctx context.Context, arg UpdateStoc
 		arg.ReservedQuantity,
 		arg.TotalQuantity,
 	)
+	var i InventoryStockLevel
+	err := row.Scan(
+		&i.ID,
+		&i.Code,
+		&i.ProductID,
+		&i.SupplierID,
+		&i.AvailableQuantity,
+		&i.ReservedQuantity,
+		&i.TotalQuantity,
+		&i.SafetyStock,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
+const updateStockLevelQuantitiesOnAdjustment = `-- name: UpdateStockLevelQuantitiesOnAdjustment :one
+UPDATE inventory.stock_level
+SET available_quantity = available_quantity + $2,
+    total_quantity = total_quantity + $2,
+    updated_at = NOW()
+WHERE id = $1 AND deleted_at IS NULL
+RETURNING id, code, product_id, supplier_id, available_quantity, reserved_quantity, total_quantity, safety_stock, created_at, updated_at, deleted_at
+`
+
+type UpdateStockLevelQuantitiesOnAdjustmentParams struct {
+	ID                int64 `json:"id"`
+	AvailableQuantity int32 `json:"available_quantity"`
+}
+
+func (q *Queries) UpdateStockLevelQuantitiesOnAdjustment(ctx context.Context, arg UpdateStockLevelQuantitiesOnAdjustmentParams) (InventoryStockLevel, error) {
+	row := q.db.QueryRow(ctx, updateStockLevelQuantitiesOnAdjustment, arg.ID, arg.AvailableQuantity)
 	var i InventoryStockLevel
 	err := row.Scan(
 		&i.ID,

@@ -131,7 +131,7 @@ UPDATE identity.buyer_profile
 SET deleted_at = NOW(), updated_at = NOW()
 WHERE id = $1;
 
--- name: UpdateBuyerProfile :one
+-- name: UpdateBuyerProfileByUserID :one
 UPDATE identity.buyer_profile
 SET business_name = COALESCE($2, business_name),
     trading_name = COALESCE($3, trading_name),

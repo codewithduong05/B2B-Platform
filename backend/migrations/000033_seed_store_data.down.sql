@@ -1,0 +1,20 @@
+-- Revert seed data
+DELETE FROM pricing.quantity_tier;
+DELETE FROM pricing.price_list_item;
+DELETE FROM pricing.price_list;
+DELETE FROM inventory.stock_level;
+DELETE FROM catalog.product_unit;
+DELETE FROM catalog.product_attribute;
+DELETE FROM catalog.product_media;
+DELETE FROM catalog.product;
+DELETE FROM catalog.attribute;
+DELETE FROM catalog.unit;
+DELETE FROM catalog.supplier;
+DELETE FROM catalog.brand;
+DELETE FROM catalog.category;
+DELETE FROM catalog.handling_class;
+DELETE FROM identity.user_role;
+DELETE FROM identity.address;
+DELETE FROM identity.buyer_profile;
+DELETE FROM identity."user";
+DELETE FROM identity.role;
