@@ -22,38 +22,27 @@ function presetSku(sku: string) {
   <section class="hero-section">
     <div class="hero-status-bar">
       <span class="material-symbols-outlined hero-status-icon">shield_lock</span>
-      <span class="hero-status-text">Enterprise Session Secured</span>
-      <span class="hero-status-sep">&bull;</span>
-      <span class="hero-status-text">Contract Net 30 Active</span>
-      <span class="hero-status-sep">&bull;</span>
-      <span class="hero-status-text">Apex Industrial Corp</span>
+      <span class="hero-status-text">Session Secured</span>
     </div>
 
     <div class="hero-grid">
       <!-- KPIs -->
       <div class="hero-kpis">
         <div class="kpi-card">
-          <span class="kpi-label">POs This Month</span>
-          <span class="kpi-value">47</span>
-          <span class="kpi-change kpi-change-up">+12.3% vs budget</span>
+          <span class="kpi-label">Products</span>
+          <span class="kpi-value">--</span>
         </div>
         <div class="kpi-card">
-          <span class="kpi-label">Reserved Allotments</span>
-          <span class="kpi-value">
-            <span class="material-symbols-outlined kpi-check">verified</span>
-            2,340
-          </span>
-          <span class="kpi-change kpi-change-up">Fully allocated</span>
+          <span class="kpi-label">Categories</span>
+          <span class="kpi-value">--</span>
         </div>
         <div class="kpi-card">
-          <span class="kpi-label">Pending Invoices</span>
-          <span class="kpi-value">$184.2K</span>
-          <span class="kpi-change kpi-change-warn">3 overdue</span>
+          <span class="kpi-label">Brands</span>
+          <span class="kpi-value">--</span>
         </div>
         <div class="kpi-card">
-          <span class="kpi-label">Avg Lead Time</span>
-          <span class="kpi-value">3.2d</span>
-          <span class="kpi-change kpi-change-up">-0.4d improved</span>
+          <span class="kpi-label">Suppliers</span>
+          <span class="kpi-value">--</span>
         </div>
       </div>
 
@@ -71,7 +60,7 @@ function presetSku(sku: string) {
             v-model="skuInput"
             type="text"
             class="input quick-order-input"
-            placeholder="e.g. VLV-IND-9021"
+            placeholder="e.g. PRD-VLV-9021"
           />
           <input v-model.number="qtyInput" type="number" min="1" class="input quick-order-qty" />
           <button class="button quick-order-btn" @click="stageItem">

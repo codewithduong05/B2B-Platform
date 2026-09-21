@@ -4,15 +4,7 @@ import { ref } from 'vue'
 const searchQuery = ref('')
 const searchScope = ref('all')
 
-const categories = [
-  { label: 'Industrial Supplies', path: '/catalog/industrial' },
-  { label: 'Raw Materials', path: '/catalog/raw-materials' },
-  { label: 'Electrical & Automation', path: '/catalog/electrical' },
-  { label: 'Packaging & Logistics', path: '/catalog/packaging' },
-  { label: 'Safety & PPE', path: '/catalog/safety' },
-  { label: 'Facility & Maintenance', path: '/catalog/facility' },
-  { label: 'MRO Contracts', path: '/contracts' },
-]
+const categories: Array<{ label: string; path: string }> = []
 </script>
 
 <template>
@@ -22,11 +14,11 @@ const categories = [
       <div class="header-context-inner">
         <div class="header-context-left">
           <span class="material-symbols-outlined header-context-icon">domain</span>
-          <span class="header-context-company">Apex Industrial Corp</span>
-          <span class="header-context-id">#AC-994201</span>
+          <span class="header-context-company"></span>
+          <span class="header-context-id"></span>
           <span class="header-context-sep">|</span>
-          <span class="badge badge-pending">Tier 1 Preferred</span>
-          <span class="header-context-terms">Contract Net 30</span>
+          <span class="badge badge-pending"></span>
+          <span class="header-context-terms"></span>
         </div>
         <div class="header-context-right">
           <span class="header-context-label">Currency:</span>
@@ -59,11 +51,7 @@ const categories = [
         <div class="header-search">
           <div class="search-wrapper">
             <select v-model="searchScope" class="search-scope">
-              <option value="all">All Catalogs</option>
-              <option value="mro">MRO Parts</option>
-              <option value="raw">Raw Materials</option>
-              <option value="electrical">Electrical</option>
-              <option value="logistics">Logistics</option>
+              <option value="all">All Products</option>
             </select>
             <span class="search-divider"></span>
             <span class="material-symbols-outlined search-icon">search</span>
@@ -84,11 +72,9 @@ const categories = [
           </a>
           <a href="/rfq" class="header-icon-btn" title="RFQ Queue">
             <span class="material-symbols-outlined">request_quote</span>
-            <span class="header-badge header-badge-primary">3</span>
           </a>
           <a href="/cart" class="header-icon-btn" title="Cart">
             <span class="material-symbols-outlined">shopping_cart</span>
-            <span class="header-badge header-badge-secondary">2</span>
           </a>
           <span class="header-divider"></span>
           <div class="header-user">
@@ -96,10 +82,10 @@ const categories = [
               <span class="material-symbols-outlined">person</span>
             </div>
             <div class="header-user-info">
-              <span class="header-user-name">Marcus Vance</span>
+              <span class="header-user-name">User</span>
               <span class="header-user-role">
                 <span class="material-symbols-outlined">verified</span>
-                Authorized Agent
+                Buyer
               </span>
             </div>
           </div>

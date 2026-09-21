@@ -1,48 +1,51 @@
 <script setup lang="ts">
-const categories = [
-  {
-    title: 'Industrial Supplies',
-    desc: 'Pneumatics, hydraulics, bearings, and drive automation components.',
-    path: '/catalog/industrial',
-    icon: 'settings',
-    count: '418 products',
-  },
-  {
-    title: 'Electrical & Automation',
-    desc: 'PLCs, VFDs, sensors, cable management, and control systems.',
-    path: '/catalog/electrical',
-    icon: 'bolt',
-    count: '312 products',
-  },
-  {
-    title: 'Safety & PPE',
-    desc: 'Personal protective equipment, gas detection, and safety signage.',
-    path: '/catalog/safety',
-    icon: 'health_and_safety',
-    count: '186 products',
-  },
-  {
-    title: 'Packaging & Logistics',
-    desc: 'Industrial packaging, palletizing, labels, and shipping supplies.',
-    path: '/catalog/packaging',
-    icon: 'local_shipping',
-    count: '94 products',
-  },
-  {
-    title: 'Facility & Maintenance',
-    desc: 'HVAC, plumbing, janitorial, and general facility upkeep.',
-    path: '/catalog/facility',
-    icon: 'home_repair_service',
-    count: '227 products',
-  },
-  {
-    title: 'Raw Materials',
-    desc: 'Metals, polymers, chemicals, and bulk commodity stock.',
-    path: '/catalog/raw-materials',
-    icon: 'inventory_2',
-    count: '153 products',
-  },
-]
+interface ApiCategory {
+  code: string
+  name: string
+  slug: string
+  description: string
+  sort_order: number
+  is_active: boolean
+}
+
+interface CategoryBentoItem {
+  title: string
+  desc: string
+  path: string
+  icon: string
+  count: string
+}
+
+const CATEGORY_ICONS: Record<string, string> = {
+  'industrial-supplies': 'settings',
+  'electrical-automation': 'bolt',
+  'safety-ppe': 'health_and_safety',
+  'packaging-logistics': 'local_shipping',
+  'facility-maintenance': 'home_repair_service',
+  'raw-materials': 'inventory_2',
+}
+
+const categories = ref<CategoryBentoItem[]>([])
+
+onMounted(async () => {
+  try {
+    const data = await $fetch<{ items: ApiCategory[] }>('/api/catalog/categories', {
+      query: { page: 1, page_size: 50 },
+    })
+    const topLevel = (data.items || []).filter(
+      (c) => c.is_active && !c.description?.includes('sub'),
+    )
+    categories.value = topLevel.map((c) => ({
+      title: c.name,
+      desc: c.description || c.name,
+      path: `/catalog?category=${c.slug}`,
+      icon: CATEGORY_ICONS[c.slug] || 'category',
+      count: '',
+    }))
+  } catch {
+    categories.value = []
+  }
+})
 </script>
 
 <template>

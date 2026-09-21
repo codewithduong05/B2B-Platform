@@ -8,26 +8,7 @@ interface ReorderItem {
   qty: number
 }
 
-const items = ref<ReorderItem[]>([
-  {
-    sku: 'VLV-IND-9021',
-    title: 'High-Pressure Solenoid Valve 24V DC',
-    lastOrder: '2025-08-12',
-    qty: 20,
-  },
-  {
-    sku: 'MTR-EL-4402',
-    title: 'Industrial Stepper Motor NEMA 34',
-    lastOrder: '2025-07-28',
-    qty: 4,
-  },
-  {
-    sku: 'CBL-NET-8831',
-    title: 'Cat6A Industrial Shielded Cable (500m)',
-    lastOrder: '2025-09-01',
-    qty: 2,
-  },
-])
+const items = ref<ReorderItem[]>([])
 
 function incrementQty(item: ReorderItem) {
   item.qty++

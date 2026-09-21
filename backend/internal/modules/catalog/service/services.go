@@ -132,11 +132,77 @@ func (s *ProductService) GetProduct(ctx context.Context, slug string) (*schema.P
 		return nil, ErrProductNotPublished
 	}
 
-	return s.toProductDetailFromSlugRow(product), nil
+	detail := s.toProductDetailFromSlugRow(product)
+
+	media, err := s.productRepo.ListProductMedia(ctx, product.ID)
+	if err == nil {
+		detail.Media = make([]schema.ProductMediaSummary, 0, len(media))
+		for _, m := range media {
+			detail.Media = append(detail.Media, schema.ProductMediaSummary{
+				Code:      m.Code,
+				URL:       m.Url,
+				AltText:   m.AltText.String,
+				MediaType: m.MediaType,
+				SortOrder: int(m.SortOrder),
+				IsPrimary: m.IsPrimary,
+			})
+		}
+	}
+
+	attrs, err := s.productRepo.ListProductAttributes(ctx, product.ID)
+	if err == nil {
+		detail.Attributes = make([]schema.ProductAttributeSummary, 0, len(attrs))
+		for _, a := range attrs {
+			valName := a.AttributeValueName.String
+			if valName == "" {
+				if a.TextValue.Valid {
+					valName = a.TextValue.String
+				} else if a.NumberValue.Valid {
+					f, _ := a.NumberValue.Float64Value()
+					valName = fmt.Sprintf("%g", f.Float64)
+				} else if a.BooleanValue.Valid {
+					if a.BooleanValue.Bool {
+						valName = "Yes"
+					} else {
+						valName = "No"
+					}
+				}
+			}
+			detail.Attributes = append(detail.Attributes, schema.ProductAttributeSummary{
+				AttributeID:   fmt.Sprintf("%d", a.AttributeID),
+				AttributeName: a.AttributeName,
+				AttributeType: a.AttributeType,
+				ValueName:     valName,
+				TextValue:     a.TextValue.String,
+			})
+		}
+	}
+
+	units, err := s.productRepo.ListProductUnits(ctx, product.ID)
+	if err == nil {
+		detail.Units = make([]schema.ProductUnitSummary, 0, len(units))
+		for _, u := range units {
+			var convFactor float64
+			if u.ConversionFactor.Valid {
+				f, _ := u.ConversionFactor.Float64Value()
+				convFactor = f.Float64
+			}
+			detail.Units = append(detail.Units, schema.ProductUnitSummary{
+				Code:             u.Code,
+				UnitCode:         u.Code,
+				UnitName:         u.Name,
+				UnitSymbol:       u.Symbol,
+				ConversionFactor: convFactor,
+				IsDefault:        u.IsDefault,
+			})
+		}
+	}
+
+	return detail, nil
 }
 
 func (s *ProductService) toProductDetailFromSlugRow(p catalog.GetProductBySlugRow) *schema.ProductDetail {
-	return &schema.ProductDetail{
+	detail := &schema.ProductDetail{
 		ProductSummary: schema.ProductSummary{
 			Code:             p.Code,
 			Slug:             p.Slug,
@@ -157,7 +223,49 @@ func (s *ProductService) toProductDetailFromSlugRow(p catalog.GetProductBySlugRo
 			UpdatedAt:        p.UpdatedAt,
 			PublishedAt:      &p.PublishedAt.Time,
 		},
+		Description:   p.Description.String,
+		HandlingClass: string(p.HandlingClass),
 	}
+
+	if p.WeightGrams.Valid {
+		v := int(p.WeightGrams.Int32)
+		detail.WeightGrams = &v
+	}
+	if p.LengthMm.Valid && p.WidthMm.Valid && p.HeightMm.Valid {
+		l, w, h := int(p.LengthMm.Int32), int(p.WidthMm.Int32), int(p.HeightMm.Int32)
+		detail.LengthMM = &l
+		detail.WidthMM = &w
+		detail.HeightMM = &h
+	}
+	if p.Gtin.Valid {
+		detail.GTIN = p.Gtin.String
+	}
+	if p.Sku.Valid {
+		detail.SKU = p.Sku.String
+	}
+
+	detail.Category = schema.CategorySummary{
+		Code: p.CategorySlug.String,
+		Name: p.CategoryName.String,
+		Slug: p.CategorySlug.String,
+	}
+	detail.Brand = schema.BrandSummary{
+		Code: p.BrandSlug.String,
+		Name: p.BrandName.String,
+		Slug: p.BrandSlug.String,
+	}
+	detail.BaseUnit = schema.UnitSummary{
+		Code:   p.BaseUnitName.String,
+		Name:   p.BaseUnitName.String,
+		Symbol: p.BaseUnitSymbol.String,
+	}
+	detail.Supplier = schema.SupplierSummary{
+		Code: p.SupplierSlug.String,
+		Name: p.SupplierName.String,
+		Slug: p.SupplierSlug.String,
+	}
+
+	return detail
 }
 
 func (s *ProductService) GetProductByCode(ctx context.Context, code string) (*schema.ProductDetail, error) {

@@ -10,34 +10,13 @@ const emit = defineEmits<{
   (e: 'reset'): void
 }>()
 
-const suppliers = [
-  { name: 'Festo Authorized', count: 142, checked: true },
-  { name: 'Parker Hannifin', count: 98, checked: true },
-  { name: 'Apex Dynamics', count: 64, checked: true },
-  { name: 'Bosch Rexroth Partner', count: 51, checked: false },
-  { name: 'Schneider Electric', count: 39, checked: false },
-  { name: 'SKF Authorized', count: 24, checked: false },
-]
+const suppliers: Array<{ name: string; count: number; checked: boolean }> = []
 
-const leadTimes = [
-  { value: 'next-day', label: 'Next-Day Dispatch', count: 184 },
-  { value: '3-5-days', label: '3 - 5 Business Days', count: 172 },
-  { value: 'factory-direct', label: 'Factory Direct (2+ Wks)', count: 62 },
-]
+const leadTimes: Array<{ value: string; label: string; count: number }> = []
 
-const warehouses = [
-  { name: 'Chicago East Hub', checked: true },
-  { name: 'Dallas Southwest Hub', checked: true },
-  { name: 'Reno West Logistics', checked: false },
-]
+const warehouses: Array<{ name: string; checked: boolean }> = []
 
-const complianceTags = [
-  { name: 'RoHS Compliant', active: true },
-  { name: 'CE Marked', active: true },
-  { name: 'UL Listed', active: true },
-  { name: 'ATEX Zone 2', active: false },
-  { name: 'ISO 14001', active: false },
-]
+const complianceTags: Array<{ name: string; active: boolean }> = []
 
 const moqDisplay = ref(props.filters.moqMax)
 

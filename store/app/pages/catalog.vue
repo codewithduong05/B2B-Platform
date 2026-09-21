@@ -19,13 +19,14 @@ const {
 } = useCatalog()
 
 const categoryInfo = ref({
-  unspsc: '40141600',
-  catalogCount: 418,
-  title: 'Industrial Pneumatics, Drives & Actuation',
+  unspsc: '',
+  title: 'Product Catalog',
   description:
-    'Precision fluid power, proportional pneumatic regulation, industrial cable spools, and drive automation compliant with DIN EN ISO 4414. Tier 1 buyer discounts automatically applied at line-item level.',
-  sla: '98.4%',
+    'Browse and search the full product catalog. Use filters to narrow results by supplier, category, and availability.',
+  sla: '',
 })
+
+const catalogCount = computed(() => state.value.total || 0)
 
 onMounted(() => {
   fetchProducts()
@@ -50,21 +51,17 @@ function handleFilterReset() {
   <div class="catalog-page">
     <!-- Breadcrumb -->
     <nav class="catalog-breadcrumb">
-      <a href="/" class="catalog-breadcrumb-link">Procurement Portal</a>
+      <a href="/" class="catalog-breadcrumb-link">Home</a>
       <span class="catalog-breadcrumb-sep">/</span>
-      <a href="/catalog" class="catalog-breadcrumb-link">Industrial Supplies</a>
-      <span class="catalog-breadcrumb-sep">/</span>
-      <a href="/catalog/automation" class="catalog-breadcrumb-link">Automation &amp; Electrical</a>
-      <span class="catalog-breadcrumb-sep">/</span>
-      <span class="catalog-breadcrumb-current">Pneumatics &amp; Actuators</span>
+      <span class="catalog-breadcrumb-current">Catalog</span>
     </nav>
 
     <!-- Header + Metric -->
     <div class="catalog-header-grid">
       <div class="catalog-header-panel">
         <div class="catalog-header-badges">
-          <span class="catalog-header-unspsc">UNSPSC {{ categoryInfo.unspsc }}</span>
-          <span class="catalog-header-count">{{ categoryInfo.catalogCount }} Active Catalogs</span>
+          <span v-if="categoryInfo.unspsc" class="catalog-header-unspsc">UNSPSC {{ categoryInfo.unspsc }}</span>
+          <span class="catalog-header-count">{{ catalogCount }} Products</span>
         </div>
         <h1 class="catalog-header-title">{{ categoryInfo.title }}</h1>
         <p class="catalog-header-desc">{{ categoryInfo.description }}</p>
@@ -78,18 +75,6 @@ function handleFilterReset() {
             Batch RFQ
           </button>
         </div>
-      </div>
-      <div class="catalog-sla-panel">
-        <div class="catalog-sla-header">
-          <span class="catalog-sla-label">Regional Hub SLA</span>
-          <span class="material-symbols-outlined catalog-sla-icon">warehouse</span>
-        </div>
-        <span class="catalog-sla-value">{{ categoryInfo.sla }}</span>
-        <span class="catalog-sla-sub">Same-day dispatch available</span>
-        <div class="catalog-sla-bar">
-          <div class="catalog-sla-fill" :style="{ width: categoryInfo.sla }"></div>
-        </div>
-        <span class="catalog-sla-note">Cut-off for zone DC-East: 16:30 EST</span>
       </div>
     </div>
 

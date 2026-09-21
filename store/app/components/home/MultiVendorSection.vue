@@ -10,7 +10,7 @@
           time, and regional availability.
         </p>
         <span class="vendor-card-stat">
-          <span class="vendor-stat-num">14</span> vendors active
+          <span class="vendor-stat-num">--</span> vendors active
         </span>
       </div>
       <div class="vendor-card">
@@ -21,7 +21,7 @@
           3-way matching against POs.
         </p>
         <span class="vendor-card-stat">
-          <span class="vendor-stat-num">$2.4M</span> processed this quarter
+          <span class="vendor-stat-num">--</span> processed this quarter
         </span>
       </div>
       <div class="vendor-card">
@@ -32,7 +32,7 @@
           for seamless procurement integration.
         </p>
         <span class="vendor-card-stat">
-          <span class="vendor-stat-num">6</span> integrations live
+          <span class="vendor-stat-num">--</span> integrations live
         </span>
       </div>
     </div>

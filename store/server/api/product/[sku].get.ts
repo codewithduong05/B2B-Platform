@@ -151,14 +151,11 @@ function mapProductDetail(data: UpstreamProductDetail): ProductDetail {
     images.push({ label: 'No image', alt: data.name, src: '', active: true })
   }
 
+  const unitSymbol = data.base_unit?.symbol || unitName
+
   const tiers = [
     { id: 'tier-1', range: '1 - 9', price: unitPrice, discount: 'Standard' },
-    { id: 'tier-2', range: '10 - 49', price: unitPrice * 0.9, discount: '-10%' },
-    { id: 'tier-3', range: '50 - 99', price: unitPrice * 0.83, discount: '-17% VIP' },
-    { id: 'tier-4', range: '100+', price: unitPrice * 0.73, discount: '-26% MSA' },
   ]
-
-  const unitSymbol = data.base_unit?.symbol || unitName
 
   return {
     id: data.code,
@@ -169,11 +166,11 @@ function mapProductDetail(data: UpstreamProductDetail): ProductDetail {
     supplier: {
       name: data.supplier?.name || data.supplier_code || 'Unknown',
       id: data.supplier?.code || data.supplier_code || '',
-      tier: 'Tier 1 MRO',
-      audited: true,
-      onTimeSla: '99.4%',
-      qualityDefect: '< 0.02%',
-      terms: 'Net 30',
+      tier: '',
+      audited: false,
+      onTimeSla: '',
+      qualityDefect: '',
+      terms: '',
       compliance: [],
     },
     pricing: {

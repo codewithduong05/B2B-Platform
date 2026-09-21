@@ -5,6 +5,7 @@ import { request } from '../utils/upstream-client'
 interface UpstreamProductSummary {
   code: string
   slug: string
+  sku?: string
   name: string
   short_description: string
   category_code: string
@@ -41,14 +42,14 @@ function mapProduct(item: UpstreamProductSummary): CatalogProduct {
   const priceMinor = item.base_price_minor ?? 0
   return {
     id: item.slug,
-    sku: item.slug,
+    sku: item.sku || item.code,
     name: item.name,
     description: item.short_description || '',
     supplier: item.supplier_code || '',
     price: priceMinor / 100,
     unit: item.base_unit_code || 'unit',
     stock: 0,
-    stockLabel: 'Check availability',
+    stockLabel: 'Contact for availability',
     warehouse: '',
     leadTime: '',
     specs: item.handling_class || '',
