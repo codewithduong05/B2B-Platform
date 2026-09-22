@@ -25,8 +25,6 @@ const categories: Array<{ label: string; path: string }> = []
           <span class="header-context-value">USD ($)</span>
           <span class="header-context-sep">|</span>
           <nav class="header-context-nav">
-            <a href="/rfq">Request for Quote</a>
-            <a href="/invoices">Invoices</a>
             <a href="/support">Help Desk</a>
           </nav>
         </div>
@@ -69,9 +67,6 @@ const categories: Array<{ label: string; path: string }> = []
           <a href="/quick-order" class="header-action-btn">
             <span class="material-symbols-outlined">bolt</span>
             <span class="header-action-label">Quick Order</span>
-          </a>
-          <a href="/rfq" class="header-icon-btn" title="RFQ Queue">
-            <span class="material-symbols-outlined">request_quote</span>
           </a>
           <a href="/cart" class="header-icon-btn" title="Cart">
             <span class="material-symbols-outlined">shopping_cart</span>

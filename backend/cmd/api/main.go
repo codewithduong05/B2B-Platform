@@ -5,8 +5,10 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
+	"github.com/atlas-platform/backend/internal/auth"
 	"github.com/atlas-platform/backend/internal/config"
 	"github.com/atlas-platform/backend/internal/database"
 	"github.com/atlas-platform/backend/internal/health"
@@ -20,19 +22,27 @@ import (
 	"github.com/atlas-platform/backend/internal/modules/commerce"
 	commerce_repo "github.com/atlas-platform/backend/internal/modules/commerce/repository"
 	commerce_service "github.com/atlas-platform/backend/internal/modules/commerce/service"
+	commerce_router "github.com/atlas-platform/backend/internal/modules/commerce/router"
 	"github.com/atlas-platform/backend/internal/modules/crm"
+	crm_router "github.com/atlas-platform/backend/internal/modules/crm/router"
 	"github.com/atlas-platform/backend/internal/modules/erp"
 	"github.com/atlas-platform/backend/internal/modules/identity"
-	identity_service "github.com/atlas-platform/backend/internal/modules/identity/service"
+	identity_router "github.com/atlas-platform/backend/internal/modules/identity/router"
 	"github.com/atlas-platform/backend/internal/modules/inventory"
+	inventory_router "github.com/atlas-platform/backend/internal/modules/inventory/router"
 	"github.com/atlas-platform/backend/internal/modules/payments"
+	payments_router "github.com/atlas-platform/backend/internal/modules/payments/router"
 	"github.com/atlas-platform/backend/internal/modules/platform"
+	platform_router "github.com/atlas-platform/backend/internal/modules/platform/router"
 	"github.com/atlas-platform/backend/internal/modules/pricing"
 	pricing_service "github.com/atlas-platform/backend/internal/modules/pricing/service"
 	"github.com/atlas-platform/backend/internal/modules/promotions"
+	promotions_router "github.com/atlas-platform/backend/internal/modules/promotions/router"
 	"github.com/atlas-platform/backend/internal/modules/reports"
 	reports_repo "github.com/atlas-platform/backend/internal/modules/reports/repository"
+	reports_router "github.com/atlas-platform/backend/internal/modules/reports/router"
 	"github.com/atlas-platform/backend/internal/modules/suppliers"
+	suppliers_router "github.com/atlas-platform/backend/internal/modules/suppliers/router"
 	"github.com/atlas-platform/backend/internal/server"
 	"github.com/atlas-platform/backend/internal/storage"
 	"github.com/atlas-platform/backend/internal/worker"
@@ -92,10 +102,6 @@ func main() {
 		defer rmq.Close()
 	}
 
-	// Initialize identity module services
-	authService := identity_service.NewAuthService()
-	// TODO: Add other identity services
-
 	// Initialize catalog module services
 	catalogServices := catalog_service.NewServices(db)
 
@@ -128,12 +134,15 @@ func main() {
 	// dispatcher that tries each module's chi.Router sequentially.
 	var moduleHandlers []http.Handler
 
-	// Identity
-	identityRouter := identity.Router
+	// Identity — reinitialize router with DB-wired services
+	identity.Init(db, &cfg.JWT)
+	jwtManager := auth.NewJWTManager(&cfg.JWT)
+	identityRouter := identity.NewRouter(identity.AuthService, identity.BuyerService, identity.AdminService)
 	identityRouter.RegisterRoutes(
-		authMiddleware(authService),
-		adminMiddleware(nil),
+		authMiddleware(jwtManager),
+		adminMiddleware(jwtManager),
 	)
+	identityRouter.RegisterAdminRoutes(adminMiddleware(jwtManager))
 	moduleHandlers = append(moduleHandlers, identityRouter.ChiRouter())
 
 	// Catalog
@@ -149,32 +158,32 @@ func main() {
 	// Inventory
 	inventoryRouter := inventory.New(inventoryService)
 	inventoryRouter.RegisterRoutes(
-		authMiddleware(authService),
-		adminMiddleware(nil),
+		authMiddleware(jwtManager),
+		adminMiddleware(jwtManager),
 	)
 	moduleHandlers = append(moduleHandlers, inventoryRouter.ChiRouter())
 
 	// Commerce
 	commerceRouter := commerce.New(commerceService)
 	commerceRouter.RegisterRoutes(
-		authMiddleware(authService),
-		adminMiddleware(nil),
+		authMiddleware(jwtManager),
+		adminMiddleware(jwtManager),
 	)
 	moduleHandlers = append(moduleHandlers, commerceRouter.ChiRouter())
 
 	// Promotions
 	promotionsRouter := promotions.New(promotionService)
 	promotionsRouter.RegisterRoutes(
-		authMiddleware(authService),
-		adminMiddleware(nil),
+		authMiddleware(jwtManager),
+		adminMiddleware(jwtManager),
 	)
 	moduleHandlers = append(moduleHandlers, promotionsRouter.ChiRouter())
 
 	// Payments
 	paymentsRouter := payments.New(paymentService)
 	paymentsRouter.RegisterRoutes(
-		authMiddleware(authService),
-		adminMiddleware(nil),
+		authMiddleware(jwtManager),
+		adminMiddleware(jwtManager),
 	)
 	moduleHandlers = append(moduleHandlers, paymentsRouter.ChiRouter())
 
@@ -182,8 +191,8 @@ func main() {
 	crmService := crm.NewService(db)
 	crmRouter := crm.New(crmService)
 	crmRouter.RegisterRoutes(
-		authMiddleware(authService),
-		adminMiddleware(nil),
+		authMiddleware(jwtManager),
+		adminMiddleware(jwtManager),
 	)
 	moduleHandlers = append(moduleHandlers, crmRouter.ChiRouter())
 
@@ -191,8 +200,8 @@ func main() {
 	reportsService := reports.NewService(db)
 	reportsRouter := reports.New(reportsService)
 	reportsRouter.RegisterRoutes(
-		authMiddleware(authService),
-		adminMiddleware(nil),
+		authMiddleware(jwtManager),
+		adminMiddleware(jwtManager),
 	)
 	moduleHandlers = append(moduleHandlers, reportsRouter.ChiRouter())
 
@@ -200,8 +209,8 @@ func main() {
 	cmsService := cms.NewService(db)
 	cmsRouter := cms.New(cmsService)
 	cmsRouter.RegisterRoutes(
-		authMiddleware(authService),
-		adminMiddleware(nil),
+		authMiddleware(jwtManager),
+		adminMiddleware(jwtManager),
 	)
 	moduleHandlers = append(moduleHandlers, cmsRouter.ChiRouter())
 
@@ -216,8 +225,8 @@ func main() {
 	)
 	supplierRouter := suppliers.New(supplierService)
 	supplierRouter.RegisterRoutes(
-		authMiddleware(authService),
-		adminMiddleware(nil),
+		authMiddleware(jwtManager),
+		adminMiddleware(jwtManager),
 	)
 	moduleHandlers = append(moduleHandlers, supplierRouter.ChiRouter())
 
@@ -226,8 +235,8 @@ func main() {
 	erpService.SetWebhookSecret(erpWebhookSecret())
 	erpRouter := erp.New(erpService)
 	erpRouter.RegisterRoutes(
-		authMiddleware(authService),
-		adminMiddleware(nil),
+		authMiddleware(jwtManager),
+		adminMiddleware(jwtManager),
 	)
 	moduleHandlers = append(moduleHandlers, erpRouter.ChiRouter())
 
@@ -235,8 +244,8 @@ func main() {
 	platformService := platform.NewService(db)
 	platformRouter := platform.New(platformService)
 	platformRouter.RegisterRoutes(
-		authMiddleware(authService),
-		adminMiddleware(nil),
+		authMiddleware(jwtManager),
+		adminMiddleware(jwtManager),
 	)
 	moduleHandlers = append(moduleHandlers, platformRouter.ChiRouter())
 
@@ -305,20 +314,70 @@ func main() {
 	srv.WaitForShutdown(ctx)
 }
 
-func authMiddleware(authService *identity_service.AuthService) func(http.Handler) http.Handler {
+func authMiddleware(jwtManager *auth.JWTManager) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// TODO: Implement JWT validation
-			next.ServeHTTP(w, r)
+			authHeader := r.Header.Get("Authorization")
+			if authHeader == "" {
+				http.Error(w, `{"error":"missing authorization header"}`, http.StatusUnauthorized)
+				return
+			}
+
+			parts := strings.SplitN(authHeader, " ", 2)
+			if len(parts) != 2 || !strings.EqualFold(parts[0], "bearer") {
+				http.Error(w, `{"error":"invalid authorization header format"}`, http.StatusUnauthorized)
+				return
+			}
+
+			claims, err := jwtManager.ValidateAccessToken(parts[1])
+			if err != nil {
+				http.Error(w, `{"error":"invalid or expired token"}`, http.StatusUnauthorized)
+				return
+			}
+
+			ctx := r.Context()
+			ctx = identity_router.WithPrincipalID(ctx, claims.UserID)
+			ctx = commerce_router.WithPrincipalID(ctx, claims.UserID)
+			ctx = inventory_router.WithPrincipalID(ctx, claims.UserID)
+			ctx = payments_router.WithPrincipalID(ctx, claims.UserID)
+			ctx = promotions_router.WithPrincipalID(ctx, claims.UserID)
+			ctx = crm_router.WithPrincipalID(ctx, claims.UserID)
+			ctx = reports_router.WithPrincipalID(ctx, claims.UserID)
+			ctx = suppliers_router.WithPrincipalID(ctx, claims.UserID)
+			ctx = platform_router.WithPrincipalID(ctx, claims.UserID)
+			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }
 
-func adminMiddleware(adminService interface{}) func(http.Handler) http.Handler {
+func adminMiddleware(jwtManager *auth.JWTManager) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// TODO: Implement admin permission check
-			next.ServeHTTP(w, r)
+			authHeader := r.Header.Get("Authorization")
+			if authHeader == "" {
+				http.Error(w, `{"error":"missing authorization header"}`, http.StatusUnauthorized)
+				return
+			}
+
+			parts := strings.SplitN(authHeader, " ", 2)
+			if len(parts) != 2 || !strings.EqualFold(parts[0], "bearer") {
+				http.Error(w, `{"error":"invalid authorization header format"}`, http.StatusUnauthorized)
+				return
+			}
+
+			claims, err := jwtManager.ValidateAccessToken(parts[1])
+			if err != nil {
+				http.Error(w, `{"error":"invalid or expired token"}`, http.StatusUnauthorized)
+				return
+			}
+
+			if claims.UserType != "admin" && claims.UserType != "staff" {
+				http.Error(w, `{"error":"admin access required"}`, http.StatusForbidden)
+				return
+			}
+
+			ctx := identity_router.WithPrincipalID(r.Context(), claims.UserID)
+			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }

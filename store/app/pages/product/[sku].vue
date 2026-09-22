@@ -35,8 +35,6 @@ async function handleAddToCart() {
 onMounted(() => {
   fetchProduct()
 })
-
-const activeTab = ref('dimensions')
 </script>
 
 <template>
@@ -77,11 +75,27 @@ const activeTab = ref('dimensions')
 
       <!-- 2-Column Layout -->
       <div class="product-layout">
-        <!-- Left: Images, Artifacts, Specs -->
+        <!-- Left: Product Info -->
         <div class="product-left">
-          <ProductImageGallery :images="product.images" />
-          <ProductEngineeringArtifacts :artifacts="product.artifacts" />
-          <ProductSpecsGrid :specs="product.specs" standard="DIN EN 60529" />
+          <div class="product-specs">
+            <h3 class="product-specs-title">Specifications</h3>
+            <div v-if="product.specs.length" class="product-specs-grid">
+              <template v-for="spec in product.specs" :key="spec.label">
+                <div class="product-spec-label" :class="{ 'product-spec-highlight': spec.highlight }">
+                  {{ spec.label }}
+                </div>
+                <div class="product-spec-value" :class="{ 'product-spec-highlight': spec.highlight }">
+                  {{ spec.value }}
+                </div>
+              </template>
+            </div>
+            <p v-else class="product-specs-empty">No specifications available.</p>
+          </div>
+
+          <div v-if="product.description" class="product-description">
+            <h3 class="product-description-title">Description</h3>
+            <p class="product-description-body">{{ product.description }}</p>
+          </div>
         </div>
 
         <!-- Right: Purchasing Command -->
@@ -107,19 +121,52 @@ const activeTab = ref('dimensions')
               </div>
             </div>
 
-            <ProductPriceCalculation
-              :unit-price="currentUnitPrice"
-              :tiers="product.pricing.tiers"
-              :unit="product.pricing.unit"
-              :active-tier-index="activeTierIndex"
-              :qty="selectedQty"
-              :subtotal="subtotal"
-              @update:qty="(v: number) => setQty(v)"
-              @adjust="adjustQty"
-              @set="setQty"
-            />
+            <div class="product-price-section">
+              <div class="product-price-row">
+                <span class="product-price-label">Unit Price</span>
+                <span class="product-price-value">${{ currentUnitPrice.toFixed(2) }} / {{ product.pricing.unit }}</span>
+              </div>
+              <div v-if="product.pricing.tiers.length > 1" class="product-tiers">
+                <div
+                  v-for="(tier, i) in product.pricing.tiers"
+                  :key="tier.id"
+                  class="product-tier"
+                  :class="{ 'product-tier-active': i === activeTierIndex }"
+                >
+                  <span class="product-tier-range">{{ tier.range }}</span>
+                  <span class="product-tier-price">${{ tier.price.toFixed(2) }}</span>
+                  <span class="product-tier-discount">{{ tier.discount }}</span>
+                </div>
+              </div>
+              <div class="product-qty-row">
+                <label class="product-qty-label">Quantity</label>
+                <div class="product-qty-controls">
+                  <button class="button button-sm" @click="adjustQty(-1)">-</button>
+                  <input
+                    type="number"
+                    class="product-qty-input"
+                    :value="selectedQty"
+                    min="1"
+                    @change="(e: Event) => setQty(Number((e.target as HTMLInputElement).value) || 1)"
+                  />
+                  <button class="button button-sm" @click="adjustQty(1)">+</button>
+                </div>
+              </div>
+              <div class="product-subtotal-row">
+                <span class="product-subtotal-label">Subtotal</span>
+                <span class="product-subtotal-value">${{ subtotal.toFixed(2) }}</span>
+              </div>
+            </div>
 
-            <ProductStockRadar :locations="product.stock" :total-stock="product.totalStock" />
+            <div v-if="product.stock.length" class="product-stock-section">
+              <h4 class="product-stock-title">Availability</h4>
+              <div v-for="loc in product.stock" :key="loc.warehouse" class="product-stock-row">
+                <span class="product-stock-warehouse">{{ loc.warehouse }}</span>
+                <span class="product-stock-units" :class="{ 'product-stock-unavailable': loc.units === 0 }">
+                  {{ loc.units }} units
+                </span>
+              </div>
+            </div>
 
             <!-- Action CTAs -->
             <div class="product-ctas">
@@ -134,77 +181,10 @@ const activeTab = ref('dimensions')
             </div>
           </div>
 
-          <ProductSupplierCard :supplier="product.supplier" />
-        </div>
-      </div>
-
-      <!-- Bottom Tabs Section -->
-      <div class="product-docs-section">
-        <div class="product-docs-header">
-          <div>
-            <h2 class="product-docs-title">Comprehensive Engineering Documentation</h2>
-            <p class="product-docs-desc">
-              Procurement specifications, manifold drill patterns, and life-cycle reliability data.
-            </p>
-          </div>
-          <div class="product-docs-tabs">
-            <button
-              class="tab"
-              :class="{ 'tab-active': activeTab === 'dimensions' }"
-              @click="activeTab = 'dimensions'"
-            >
-              Dimensional Layout
-            </button>
-            <button
-              class="tab"
-              :class="{ 'tab-active': activeTab === 'wiring' }"
-              @click="activeTab = 'wiring'"
-            >
-              Wiring &amp; Control
-            </button>
-            <button
-              class="tab"
-              :class="{ 'tab-active': activeTab === 'maintenance' }"
-              @click="activeTab = 'maintenance'"
-            >
-              Maintenance Schedules
-            </button>
-          </div>
-        </div>
-        <div class="product-docs-content">
-          <div class="product-docs-blueprint">
-            <span class="material-symbols-outlined product-docs-blueprint-icon">engineering</span>
-            <span class="product-docs-blueprint-badge">Tolerance ±0.05mm</span>
-          </div>
-          <div class="product-docs-cards">
-            <div class="product-doc-card">
-              <h4 class="product-doc-card-title">Coil Excitation Specs</h4>
-              <p class="product-doc-card-body">
-                Standard 24V DC excitation allows continuous energization without auxiliary chilling
-                up to an ambient ceiling of 65°C. Transient suppressor diodes built-in to nullify
-                inductive flyback voltage.
-              </p>
-            </div>
-            <div class="product-doc-card">
-              <h4 class="product-doc-card-title">Elastomer Sealing Chemistry</h4>
-              <p class="product-doc-card-body">
-                FKM (Viton®) elastomeric seals provide impervious barrier resistance to synthetic
-                compressor oils, minor solvent vapors, and volatile hydrocarbons down to -10°C.
-              </p>
-            </div>
-            <div class="product-doc-card product-doc-card-cta">
-              <div class="product-doc-cta-left">
-                <span class="material-symbols-outlined product-doc-cta-icon">support_agent</span>
-                <div>
-                  <span class="product-doc-cta-title"
-                    >Need custom manifold spacing or hazardous zone ATEX cert?</span
-                  >
-                  <span class="product-doc-cta-desc"
-                    >{{ product?.supplier?.name || 'Supplier' }} OEM Field Application Engineers available for Atlas buyers.</span
-                  >
-                </div>
-              </div>
-              <button class="button button-secondary">Contact Applications Engineer</button>
+          <div class="product-supplier-card">
+            <h3 class="product-supplier-title">Supplier</h3>
+            <div class="product-supplier-info">
+              <span class="product-supplier-name">{{ product.supplier.name }}</span>
             </div>
           </div>
         </div>
@@ -437,147 +417,235 @@ const activeTab = ref('dimensions')
   color: var(--secondary);
 }
 
-/* ── Docs Section ── */
-.product-docs-section {
+/* ── Specs ── */
+.product-specs {
   background-color: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-xl);
-  padding: var(--space-xl);
-  margin-top: var(--space-xl);
+  padding: var(--space-lg);
 }
 
-.product-docs-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  border-bottom: 1px solid var(--surface-container-high);
-  padding-bottom: var(--space-md);
-  margin-bottom: var(--space-lg);
-  flex-wrap: wrap;
-  gap: var(--space-md);
-}
-
-.product-docs-title {
-  font-size: var(--text-headline-md);
+.product-specs-title {
+  font-size: var(--text-headline-sm);
   font-weight: 700;
   color: var(--on-surface);
-  margin: 0;
+  margin: 0 0 var(--space-md);
 }
 
-.product-docs-desc {
-  margin: 4px 0 0;
+.product-specs-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-sm) var(--space-lg);
+}
+
+.product-spec-label {
+  font-size: var(--text-label-sm);
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label-sm);
+}
+
+.product-spec-value {
+  font-size: var(--text-body-sm);
+  color: var(--on-surface);
+}
+
+.product-spec-highlight {
+  color: var(--secondary);
+}
+
+.product-specs-empty {
   font-size: var(--text-body-sm);
   color: var(--muted);
 }
 
-.product-docs-tabs {
-  display: flex;
-  gap: var(--space-xs);
-  background-color: var(--surface-container-low);
-  padding: 4px;
-  border-radius: var(--radius-lg);
+/* ── Description ── */
+.product-description {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  padding: var(--space-lg);
 }
 
-.product-docs-content {
-  display: grid;
-  grid-template-columns: 1fr 2fr;
-  gap: var(--space-xl);
-  align-items: center;
-}
-
-.product-docs-blueprint {
-  aspect-ratio: 4 / 3;
-  border-radius: var(--radius-lg);
-  background-color: var(--surface-container-low);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-}
-
-.product-docs-blueprint-icon {
-  font-size: 48px;
-  color: var(--outline-variant);
-}
-
-.product-docs-blueprint-badge {
-  position: absolute;
-  bottom: 8px;
-  left: 8px;
-  padding: 2px 8px;
-  border-radius: var(--radius);
-  background-color: rgba(0, 0, 0, 0.8);
-  color: var(--on-primary);
-  font-family: monospace;
-  font-size: 10px;
-}
-
-.product-docs-cards {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-md);
-}
-
-.product-doc-card {
-  padding: var(--space-md);
-  border-radius: var(--radius-lg);
-  background-color: var(--surface-container-low);
-}
-
-.product-doc-card-title {
-  font-size: var(--text-label-md);
+.product-description-title {
+  font-size: var(--text-headline-sm);
   font-weight: 700;
   color: var(--on-surface);
-  margin: 0 0 var(--space-xs);
+  margin: 0 0 var(--space-md);
 }
 
-.product-doc-card-body {
+.product-description-body {
   margin: 0;
-  font-size: var(--text-body-sm);
+  font-size: var(--text-body-md);
   color: var(--muted);
   line-height: 1.6;
 }
 
-.product-doc-card-cta {
-  background-color: var(--surface-container);
+/* ── Price Section ── */
+.product-price-section {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: var(--space-md);
+  padding: var(--space-md) 0;
+  border-bottom: 1px solid var(--surface-container-high);
 }
 
-.product-doc-cta-left {
+.product-price-row {
   display: flex;
-  align-items: flex-start;
-  gap: var(--space-sm);
+  justify-content: space-between;
+  align-items: baseline;
 }
 
-.product-doc-cta-icon {
-  font-size: 24px;
-  color: var(--secondary);
-  flex-shrink: 0;
-}
-
-.product-doc-cta-title {
-  display: block;
+.product-price-label {
   font-size: var(--text-label-md);
+  color: var(--muted);
+}
+
+.product-price-value {
+  font-size: var(--text-headline-md);
   font-weight: 700;
   color: var(--on-surface);
 }
 
-.product-doc-cta-desc {
-  display: block;
+.product-tiers {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.product-tier {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius);
   font-size: var(--text-body-sm);
   color: var(--muted);
 }
 
+.product-tier-active {
+  background-color: var(--secondary-fixed);
+  color: var(--on-surface);
+}
+
+.product-tier-range {
+  font-weight: 600;
+}
+
+.product-tier-price {
+  font-weight: 600;
+  color: var(--on-surface);
+}
+
+.product-tier-discount {
+  color: var(--secondary);
+  font-size: var(--text-label-sm);
+}
+
+.product-qty-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.product-qty-label {
+  font-size: var(--text-label-md);
+  color: var(--muted);
+}
+
+.product-qty-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.product-qty-input {
+  width: 56px;
+  height: 36px;
+  text-align: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: var(--text-body-md);
+}
+
+.product-subtotal-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--surface-container-high);
+}
+
+.product-subtotal-label {
+  font-size: var(--text-label-md);
+  font-weight: 600;
+  color: var(--on-surface);
+}
+
+.product-subtotal-value {
+  font-size: var(--text-headline-sm);
+  font-weight: 700;
+  color: var(--on-surface);
+}
+
+/* ── Stock Section ── */
+.product-stock-section {
+  padding: var(--space-md) 0;
+}
+
+.product-stock-title {
+  font-size: var(--text-label-md);
+  font-weight: 600;
+  color: var(--on-surface);
+  margin: 0 0 var(--space-sm);
+}
+
+.product-stock-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-xs) 0;
+  font-size: var(--text-body-sm);
+}
+
+.product-stock-warehouse {
+  color: var(--muted);
+}
+
+.product-stock-units {
+  font-weight: 600;
+  color: var(--on-surface);
+}
+
+.product-stock-unavailable {
+  color: var(--error);
+}
+
+/* ── Supplier Card ── */
+.product-supplier-card {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  padding: var(--space-lg);
+}
+
+.product-supplier-title {
+  font-size: var(--text-headline-sm);
+  font-weight: 700;
+  color: var(--on-surface);
+  margin: 0 0 var(--space-md);
+}
+
+.product-supplier-name {
+  font-size: var(--text-body-md);
+  font-weight: 600;
+  color: var(--on-surface);
+}
+
 @media (max-width: 1024px) {
   .product-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .product-docs-content {
     grid-template-columns: 1fr;
   }
 }

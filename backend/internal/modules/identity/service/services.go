@@ -448,17 +448,19 @@ func verifyOTP(otp, hash string) bool {
 // ==================== BuyerService ====================
 
 type BuyerService struct {
-	buyerRepo   *repository.BuyerProfileRepository
-	addressRepo *repository.AddressRepository
-	userRepo    *repository.UserRepository
+	buyerRepo        *repository.BuyerProfileRepository
+	addressRepo      *repository.AddressRepository
+	userRepo         *repository.UserRepository
+	verificationRepo *repository.VerificationRepository
 }
 
 func NewBuyerService() *BuyerService { return &BuyerService{} }
 
-func (s *BuyerService) SetDependencies(buyerRepo *repository.BuyerProfileRepository, addressRepo *repository.AddressRepository, userRepo *repository.UserRepository) {
+func (s *BuyerService) SetDependencies(buyerRepo *repository.BuyerProfileRepository, addressRepo *repository.AddressRepository, userRepo *repository.UserRepository, verificationRepo *repository.VerificationRepository) {
 	s.buyerRepo = buyerRepo
 	s.addressRepo = addressRepo
 	s.userRepo = userRepo
+	s.verificationRepo = verificationRepo
 }
 
 func (s *BuyerService) GetProfile(ctx context.Context, userID int64) (*schema.BuyerProfileResponse, error) {
@@ -648,6 +650,85 @@ func (s *BuyerService) DeleteAddress(ctx context.Context, userID int64, addressC
 	}
 
 	return s.addressRepo.SoftDeleteAddress(ctx, address.ID)
+}
+
+func (s *BuyerService) GetVerificationStatus(ctx context.Context, userID int64) (*schema.VerificationApplicationResponse, error) {
+	profile, err := s.buyerRepo.GetBuyerProfileByUserID(ctx, userID)
+	if err != nil {
+		return nil, ErrBuyerProfileNotFound
+	}
+
+	app, err := s.verificationRepo.GetVerificationApplicationByBuyer(ctx, profile.ID)
+	if err != nil {
+		return nil, ErrVerificationNotFound
+	}
+
+	return s.toVerificationApplicationResponse(app), nil
+}
+
+func (s *BuyerService) SubmitVerification(ctx context.Context, userID int64, req schema.SubmitVerificationRequest) (*schema.VerificationApplicationResponse, error) {
+	profile, err := s.buyerRepo.GetBuyerProfileByUserID(ctx, userID)
+	if err != nil {
+		return nil, ErrBuyerProfileNotFound
+	}
+
+	existing, err := s.verificationRepo.GetVerificationApplicationByBuyer(ctx, profile.ID)
+	if err == nil && (existing.Status == "pending" || existing.Status == "approved") {
+		return nil, ErrVerificationPending
+	}
+
+	expiry, err := time.Parse("2006-01-02", req.LicenceExpiry)
+	if err != nil {
+		return nil, fmt.Errorf("invalid licence_expiry format (use YYYY-MM-DD): %w", ErrInvalidInput)
+	}
+
+	params := identity.CreateVerificationApplicationParams{
+		Code:                  generateCode(),
+		BuyerProfileID:        profile.ID,
+		LicenceNumber:         pgtype.Text{String: req.LicenceNumber, Valid: req.LicenceNumber != ""},
+		LicenceExpiry:         pgtype.Date{Time: expiry, Valid: true},
+		TradingName:           pgtype.Text{String: req.TradingName, Valid: req.TradingName != ""},
+		BusinessAddressLine1:  pgtype.Text{String: req.BusinessAddressLine1, Valid: req.BusinessAddressLine1 != ""},
+		BusinessAddressLine2:  pgtype.Text{String: req.BusinessAddressLine2, Valid: req.BusinessAddressLine2 != ""},
+		BusinessCity:          pgtype.Text{String: req.BusinessCity, Valid: req.BusinessCity != ""},
+		BusinessStateProvince: pgtype.Text{String: req.BusinessStateProvince, Valid: req.BusinessStateProvince != ""},
+		BusinessPostalCode:    pgtype.Text{String: req.BusinessPostalCode, Valid: req.BusinessPostalCode != ""},
+		BusinessCountry:       req.BusinessCountry,
+	}
+
+	row, err := s.verificationRepo.CreateVerificationApplication(ctx, params)
+	if err != nil {
+		return nil, fmt.Errorf("create verification application: %w", err)
+	}
+
+	return &schema.VerificationApplicationResponse{
+		Code:                  row.Code,
+		Status:                string(row.Status),
+		SubmittedAt:           row.CreatedAt,
+		CreatedAt:             row.CreatedAt,
+		UpdatedAt:             row.UpdatedAt,
+		LicenceNumber:         req.LicenceNumber,
+		LicenceExpiry:         &expiry,
+		TradingName:           req.TradingName,
+		BusinessAddressLine1:  req.BusinessAddressLine1,
+		BusinessAddressLine2:  req.BusinessAddressLine2,
+		BusinessCity:          req.BusinessCity,
+		BusinessStateProvince: req.BusinessStateProvince,
+		BusinessPostalCode:    req.BusinessPostalCode,
+		BusinessCountry:       req.BusinessCountry,
+	}, nil
+}
+
+func (s *BuyerService) toVerificationApplicationResponse(app identity.GetVerificationApplicationByBuyerRow) *schema.VerificationApplicationResponse {
+	return &schema.VerificationApplicationResponse{
+		Code:            app.Code,
+		Status:          string(app.Status),
+		SubmittedAt:     app.SubmittedAt,
+		DecisionReason:  app.DecisionReason.String,
+		RejectionReason: app.RejectionReason.String,
+		CreatedAt:       app.CreatedAt,
+		UpdatedAt:       app.UpdatedAt,
+	}
 }
 
 func (s *BuyerService) toBuyerProfileResponse(profile identity.GetBuyerProfileByUserIDRow) *schema.BuyerProfileResponse {

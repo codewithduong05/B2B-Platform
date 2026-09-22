@@ -1,4 +1,4 @@
-import { findRouteEntry as sharedFindRouteEntry, type RouteEntry } from '../../shared/routes'
+import { findRouteEntry as sharedFindRouteEntry, type RouteEntry } from '#shared/routes'
 
 export const routeRegistry: RouteEntry[] = [
   { route: '/', title: 'Store', group: 'Storefront' },

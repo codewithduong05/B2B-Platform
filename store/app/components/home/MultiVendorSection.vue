@@ -37,8 +37,8 @@ onMounted(() => {
           Consolidate multi-supplier invoices into a single reconciliation stream with automated
           3-way matching against POs.
         </p>
-        <span class="vendor-card-stat">
-          <span class="vendor-stat-num">--</span> processed this quarter
+        <span class="vendor-card-stat vendor-card-stat-unsupported">
+          Coming soon
         </span>
       </div>
       <div class="vendor-card">
@@ -48,8 +48,8 @@ onMounted(() => {
           Pre-configured PunchOut catalog connections with SAP Ariba, Coupa, and Oracle iProcurement
           for seamless procurement integration.
         </p>
-        <span class="vendor-card-stat">
-          <span class="vendor-stat-num">--</span> integrations live
+        <span class="vendor-card-stat vendor-card-stat-unsupported">
+          Coming soon
         </span>
       </div>
     </div>
@@ -119,6 +119,11 @@ onMounted(() => {
   font-weight: 700;
   color: var(--on-surface);
   font-variant-numeric: tabular-nums;
+}
+
+.vendor-card-stat-unsupported {
+  font-style: italic;
+  color: var(--outline-variant);
 }
 
 @media (max-width: 768px) {

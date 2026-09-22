@@ -10,21 +10,23 @@ const emit = defineEmits<{
   (e: 'reset'): void
 }>()
 
+interface FacetItem {
+  facet_type: string
+  value_id: string
+  value_name: string
+  count: number
+}
+
 const suppliers = ref<Array<{ name: string; count: number; checked: boolean }>>([])
 
-const leadTimes: Array<{ value: string; label: string; count: number }> = []
-
-const warehouses: Array<{ name: string; checked: boolean }> = []
-
-const complianceTags: Array<{ name: string; active: boolean }> = []
-
-// Fetch suppliers from BFF
-async function loadSuppliers() {
+async function loadFacets() {
   try {
-    const data = await $fetch<{ suppliers: Array<{ name: string; code: string }> }>('/api/catalog/filters')
-    suppliers.value = data.suppliers.map((s) => ({
-      name: s.name,
-      count: 0,
+    const data = await $fetch<{ facets: FacetItem[] }>('/api/catalog/facets')
+    const facets = data.facets || []
+    const supplierFacets = facets.filter((f) => f.facet_type === 'supplier')
+    suppliers.value = supplierFacets.map((f) => ({
+      name: f.value_name,
+      count: f.count,
       checked: false,
     }))
   } catch {
@@ -33,7 +35,7 @@ async function loadSuppliers() {
 }
 
 onMounted(() => {
-  loadSuppliers()
+  loadFacets()
 })
 
 const moqDisplay = ref(props.filters.moqMax)
@@ -54,22 +56,6 @@ function toggleSupplier(name: string) {
 
 function setLeadTime(value: string) {
   emit('update:filters', { leadTime: value })
-}
-
-function toggleWarehouse(name: string) {
-  const current = [...props.filters.warehouses]
-  const idx = current.indexOf(name)
-  if (idx >= 0) current.splice(idx, 1)
-  else current.push(name)
-  emit('update:filters', { warehouses: current })
-}
-
-function toggleCompliance(name: string) {
-  const current = [...props.filters.compliance]
-  const idx = current.indexOf(name)
-  if (idx >= 0) current.splice(idx, 1)
-  else current.push(name)
-  emit('update:filters', { compliance: current })
 }
 </script>
 
@@ -98,40 +84,6 @@ function toggleCompliance(name: string) {
       </div>
     </div>
 
-    <!-- Lead Time Facet -->
-    <div class="filter-facet">
-      <span class="filter-facet-label">Lead Time SLA</span>
-      <div class="filter-radio-group">
-        <label v-for="lt in leadTimes" :key="lt.value" class="filter-radio-label">
-          <input
-            type="radio"
-            name="leadtime"
-            class="filter-radio"
-            :checked="filters.leadTime === lt.value"
-            @change="setLeadTime(lt.value)"
-          />
-          <span class="filter-radio-text">{{ lt.label }}</span>
-          <span class="filter-radio-count">{{ lt.count }}</span>
-        </label>
-      </div>
-    </div>
-
-    <!-- Warehouse Facet -->
-    <div class="filter-facet">
-      <span class="filter-facet-label">Warehouse Allocation</span>
-      <div class="filter-checkbox-group">
-        <label v-for="w in warehouses" :key="w.name" class="filter-checkbox-label">
-          <input
-            type="checkbox"
-            class="filter-checkbox"
-            :checked="filters.warehouses.includes(w.name)"
-            @change="toggleWarehouse(w.name)"
-          />
-          <span class="filter-checkbox-text">{{ w.name }}</span>
-        </label>
-      </div>
-    </div>
-
     <!-- MOQ Slider -->
     <div class="filter-facet">
       <div class="filter-facet-header">
@@ -149,22 +101,6 @@ function toggleCompliance(name: string) {
       <div class="filter-slider-labels">
         <span>1 unit</span>
         <span>100 units</span>
-      </div>
-    </div>
-
-    <!-- Compliance Tags -->
-    <div class="filter-facet">
-      <span class="filter-facet-label">Regulatory Compliance</span>
-      <div class="filter-tags">
-        <button
-          v-for="tag in complianceTags"
-          :key="tag.name"
-          class="filter-tag"
-          :class="{ 'filter-tag-active': filters.compliance.includes(tag.name) }"
-          @click="toggleCompliance(tag.name)"
-        >
-          {{ tag.name }}
-        </button>
       </div>
     </div>
 

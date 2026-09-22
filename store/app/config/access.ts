@@ -1,5 +1,5 @@
-import { canAccess, landingPathFor } from '../../shared/access'
-import type { Principal } from '../../shared/principal'
+import { canAccess, landingPathFor } from '#shared/access'
+import type { Principal } from '#shared/principal'
 import { routeRegistry } from '~/config/routes'
 
 export function isRouteAccessible(route: string, principal: Principal): boolean {

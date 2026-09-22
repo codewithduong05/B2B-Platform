@@ -9,6 +9,7 @@ export interface UpstreamRequestConfig {
   accessToken?: string | null
   onUnauthorized?: (previousToken: string | null) => Promise<string | null> | string | null
   fetchImpl?: typeof fetch
+  headers?: Record<string, string>
 }
 
 export interface UpstreamResult {
@@ -73,6 +74,7 @@ export async function request(
     const headers: Record<string, string> = {
       accept: 'application/json',
       'x-request-id': config.requestId,
+      ...config.headers,
     }
     if (token !== null && token !== '') {
       headers.authorization = `Bearer ${token}`

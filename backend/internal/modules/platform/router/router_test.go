@@ -32,7 +32,7 @@ func TestMain(m *testing.M) {
 		rawDB, err := sql.Open("pgx", cfg.PostgresDSN())
 		if err == nil && rawDB != nil {
 			_, _ = rawDB.Exec("SELECT pg_advisory_lock($1)", int64(platformTestDBLockKey))
-			_, _ = rawDB.Exec("DROP SCHEMA IF EXISTS catalog CASCADE; DROP SCHEMA IF EXISTS inventory CASCADE; DROP SCHEMA IF EXISTS identity CASCADE; DROP SCHEMA IF EXISTS pricing CASCADE; DROP SCHEMA IF EXISTS commerce CASCADE; DROP SCHEMA IF EXISTS payments CASCADE; DROP SCHEMA IF EXISTS promotions CASCADE; DROP SCHEMA IF EXISTS crm CASCADE; DROP SCHEMA IF EXISTS suppliers CASCADE; DROP SCHEMA IF EXISTS cms CASCADE; DROP SCHEMA IF EXISTS reports CASCADE; DROP SCHEMA IF EXISTS erp CASCADE; DROP SCHEMA IF EXISTS platform CASCADE; DROP TABLE IF EXISTS schema_migrations CASCADE; DROP TYPE IF EXISTS catalog_handling_class_type CASCADE;")
+			_, _ = rawDB.Exec("DROP SCHEMA IF EXISTS catalog CASCADE; DROP SCHEMA IF EXISTS inventory CASCADE; DROP SCHEMA IF EXISTS identity CASCADE; DROP SCHEMA IF EXISTS pricing CASCADE; DROP SCHEMA IF EXISTS commerce CASCADE; DROP SCHEMA IF EXISTS payments CASCADE; DROP SCHEMA IF EXISTS promotions CASCADE; DROP SCHEMA IF EXISTS crm CASCADE; DROP SCHEMA IF EXISTS suppliers CASCADE; DROP SCHEMA IF EXISTS cms CASCADE; DROP SCHEMA IF EXISTS reports CASCADE; DROP SCHEMA IF EXISTS erp CASCADE; DROP SCHEMA IF EXISTS platform CASCADE; DROP SCHEMA IF EXISTS ai CASCADE; DROP SCHEMA IF EXISTS analytics CASCADE; DROP TABLE IF EXISTS schema_migrations CASCADE; DROP TYPE IF EXISTS catalog_handling_class_type CASCADE;")
 
 			if err := database.RunMigrations(ctx, &cfg.Postgres, "file://../../../../migrations"); err != nil {
 				fmt.Printf("TestMain migration error: %v\n", err)
@@ -114,7 +114,7 @@ func TestPlatform_CreateTemplate(t *testing.T) {
 	env := setupPlatformEnv(t)
 	ctx := context.Background()
 	_, _ = env.db.Pool.Exec(ctx, "TRUNCATE TABLE platform.notification_template RESTART IDENTITY CASCADE")
-	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, email, password_hash, status) VALUES (1, 'admin@test.com', 'hash', 'active')`)
+	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, code, email, password_hash, user_type) VALUES (1, 'usr_adm001', 'admin@test.com', 'hash', 'platform')`)
 
 	req := schema.CreateTemplateRequest{
 		Code:      "order_confirmation",
@@ -143,7 +143,7 @@ func TestPlatform_ListTemplates(t *testing.T) {
 	env := setupPlatformEnv(t)
 	ctx := context.Background()
 	_, _ = env.db.Pool.Exec(ctx, "TRUNCATE TABLE platform.notification_template RESTART IDENTITY CASCADE")
-	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, email, password_hash, status) VALUES (1, 'admin@test.com', 'hash', 'active')`)
+	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, code, email, password_hash, user_type) VALUES (1, 'usr_adm001', 'admin@test.com', 'hash', 'platform')`)
 
 	for i := 0; i < 3; i++ {
 		_, _ = env.db.Pool.Exec(ctx, `
@@ -168,7 +168,7 @@ func TestPlatform_UpdateTemplate(t *testing.T) {
 	env := setupPlatformEnv(t)
 	ctx := context.Background()
 	_, _ = env.db.Pool.Exec(ctx, "TRUNCATE TABLE platform.notification_template RESTART IDENTITY CASCADE")
-	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, email, password_hash, status) VALUES (1, 'admin@test.com', 'hash', 'active')`)
+	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, code, email, password_hash, user_type) VALUES (1, 'usr_adm001', 'admin@test.com', 'hash', 'platform')`)
 
 	var templateID int64
 	_ = env.db.Pool.QueryRow(ctx, `
@@ -198,8 +198,9 @@ func TestPlatform_SendNotification(t *testing.T) {
 	env := setupPlatformEnv(t)
 	ctx := context.Background()
 	_, _ = env.db.Pool.Exec(ctx, "TRUNCATE TABLE platform.notification, platform.notification_event, platform.notification_template RESTART IDENTITY CASCADE")
-	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, email, password_hash, status) VALUES (1, 'admin@test.com', 'hash', 'active')`)
-	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity.buyer_profile (id, code, company_name, contact_email, status) VALUES (100, 'BUYER001', 'Test Corp', 'buyer@test.com', 'approved')`)
+	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, code, email, password_hash, user_type) VALUES (1, 'usr_adm001', 'admin@test.com', 'hash', 'platform')`)
+	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, code, email, password_hash, user_type) VALUES (100, 'usr_buy001', 'buyer@test.com', 'hash', 'buyer')`)
+	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity.buyer_profile (id, code, business_name, user_id) VALUES (100, 'BUYER001', 'Test Corp', 100)`)
 
 	_, _ = env.db.Pool.Exec(ctx, `
 		INSERT INTO platform.notification_template (code, name, channel, subject, body_template, variables, status)
@@ -234,13 +235,14 @@ func TestPlatform_BuyerNotifications(t *testing.T) {
 	env := setupPlatformEnv(t)
 	ctx := context.Background()
 	_, _ = env.db.Pool.Exec(ctx, "TRUNCATE TABLE platform.notification RESTART IDENTITY CASCADE")
-	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, email, password_hash, status) VALUES (1, 'admin@test.com', 'hash', 'active')`)
-	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity.buyer_profile (id, code, company_name, contact_email, status) VALUES (100, 'BUYER001', 'Test Corp', 'buyer@test.com', 'approved')`)
+	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, code, email, password_hash, user_type) VALUES (1, 'usr_adm001', 'admin@test.com', 'hash', 'platform')`)
+	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, code, email, password_hash, user_type) VALUES (100, 'usr_buy001', 'buyer@test.com', 'hash', 'buyer')`)
+	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity.buyer_profile (id, code, business_name, user_id) VALUES (100, 'BUYER001', 'Test Corp', 100)`)
 
 	for i := 0; i < 3; i++ {
 		_, _ = env.db.Pool.Exec(ctx, `
 			INSERT INTO platform.notification (code, template_id, recipient_type, recipient_id, channel, recipient_address, subject, body, status)
-			VALUES ($1, NULL, 'buyer', 100, 'email', 'buyer@test.com', 'Subject', 'Body', 'sent')
+			VALUES ($1, NULL, 'buyer', 1, 'email', 'buyer@test.com', 'Subject', 'Body', 'sent')
 		`, fmt.Sprintf("notif_%d", i))
 	}
 
@@ -260,7 +262,7 @@ func TestPlatform_AdminListNotifications(t *testing.T) {
 	env := setupPlatformEnv(t)
 	ctx := context.Background()
 	_, _ = env.db.Pool.Exec(ctx, "TRUNCATE TABLE platform.notification RESTART IDENTITY CASCADE")
-	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, email, password_hash, status) VALUES (1, 'admin@test.com', 'hash', 'active')`)
+	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, code, email, password_hash, user_type) VALUES (1, 'usr_adm001', 'admin@test.com', 'hash', 'platform')`)
 
 	for i := 0; i < 5; i++ {
 		channel := "email"
@@ -292,7 +294,7 @@ func TestPlatform_SendNotification_TemplateNotFound(t *testing.T) {
 	env := setupPlatformEnv(t)
 	ctx := context.Background()
 	_, _ = env.db.Pool.Exec(ctx, "TRUNCATE TABLE platform.notification_template RESTART IDENTITY CASCADE")
-	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, email, password_hash, status) VALUES (1, 'admin@test.com', 'hash', 'active')`)
+	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, code, email, password_hash, user_type) VALUES (1, 'usr_adm001', 'admin@test.com', 'hash', 'platform')`)
 
 	req := schema.SendNotificationRequest{
 		TemplateCode:  "nonexistent",
@@ -309,8 +311,9 @@ func TestPlatform_SendNotification_InactiveTemplate(t *testing.T) {
 	env := setupPlatformEnv(t)
 	ctx := context.Background()
 	_, _ = env.db.Pool.Exec(ctx, "TRUNCATE TABLE platform.notification_template RESTART IDENTITY CASCADE")
-	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, email, password_hash, status) VALUES (1, 'admin@test.com', 'hash', 'active')`)
-	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity.buyer_profile (id, code, company_name, contact_email, status) VALUES (100, 'BUYER001', 'Test Corp', 'buyer@test.com', 'approved')`)
+	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, code, email, password_hash, user_type) VALUES (1, 'usr_adm001', 'admin@test.com', 'hash', 'platform')`)
+	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, code, email, password_hash, user_type) VALUES (100, 'usr_buy001', 'buyer@test.com', 'hash', 'buyer')`)
+	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity.buyer_profile (id, code, business_name, user_id) VALUES (100, 'BUYER001', 'Test Corp', 100)`)
 
 	_, _ = env.db.Pool.Exec(ctx, `
 		INSERT INTO platform.notification_template (code, name, channel, subject, body_template, variables, status)
@@ -332,7 +335,7 @@ func TestPlatform_CreateMedia(t *testing.T) {
 	env := setupPlatformEnv(t)
 	ctx := context.Background()
 	_, _ = env.db.Pool.Exec(ctx, "TRUNCATE TABLE platform.media_upload RESTART IDENTITY CASCADE")
-	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, email, password_hash, status) VALUES (1, 'admin@test.com', 'hash', 'active')`)
+	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, code, email, password_hash, user_type) VALUES (1, 'usr_adm001', 'admin@test.com', 'hash', 'platform')`)
 
 	req := schema.CreateMediaRequest{
 		Filename:    "test.jpg",
@@ -355,7 +358,7 @@ func TestPlatform_CreateMedia(t *testing.T) {
 func TestPlatform_CreateMedia_InvalidInput(t *testing.T) {
 	env := setupPlatformEnv(t)
 	ctx := context.Background()
-	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, email, password_hash, status) VALUES (1, 'admin@test.com', 'hash', 'active')`)
+	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, code, email, password_hash, user_type) VALUES (1, 'usr_adm001', 'admin@test.com', 'hash', 'platform')`)
 
 	req := schema.CreateMediaRequest{
 		Filename:    "",
@@ -371,7 +374,7 @@ func TestPlatform_ListRegions(t *testing.T) {
 	env := setupPlatformEnv(t)
 	ctx := context.Background()
 	_, _ = env.db.Pool.Exec(ctx, "TRUNCATE TABLE platform.reference_region RESTART IDENTITY CASCADE")
-	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, email, password_hash, status) VALUES (1, 'admin@test.com', 'hash', 'active')`)
+	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, code, email, password_hash, user_type) VALUES (1, 'usr_adm001', 'admin@test.com', 'hash', 'platform')`)
 
 	_, _ = env.db.Pool.Exec(ctx, `
 		INSERT INTO platform.reference_region (code, name, country, is_active)
@@ -398,7 +401,7 @@ func TestPlatform_ListFeatureFlags(t *testing.T) {
 	env := setupPlatformEnv(t)
 	ctx := context.Background()
 	_, _ = env.db.Pool.Exec(ctx, "TRUNCATE TABLE platform.feature_flag RESTART IDENTITY CASCADE")
-	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, email, password_hash, status) VALUES (1, 'admin@test.com', 'hash', 'active')`)
+	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, code, email, password_hash, user_type) VALUES (1, 'usr_adm001', 'admin@test.com', 'hash', 'platform')`)
 
 	_, _ = env.db.Pool.Exec(ctx, `
 		INSERT INTO platform.feature_flag (key, name, description, enabled)
@@ -423,7 +426,7 @@ func TestPlatform_ListFeatureFlags_FilterEnabled(t *testing.T) {
 	env := setupPlatformEnv(t)
 	ctx := context.Background()
 	_, _ = env.db.Pool.Exec(ctx, "TRUNCATE TABLE platform.feature_flag RESTART IDENTITY CASCADE")
-	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, email, password_hash, status) VALUES (1, 'admin@test.com', 'hash', 'active')`)
+	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, code, email, password_hash, user_type) VALUES (1, 'usr_adm001', 'admin@test.com', 'hash', 'platform')`)
 
 	_, _ = env.db.Pool.Exec(ctx, `
 		INSERT INTO platform.feature_flag (key, name, enabled)
@@ -449,7 +452,7 @@ func TestPlatform_AdminListFeatureFlags(t *testing.T) {
 	env := setupPlatformEnv(t)
 	ctx := context.Background()
 	_, _ = env.db.Pool.Exec(ctx, "TRUNCATE TABLE platform.feature_flag RESTART IDENTITY CASCADE")
-	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, email, password_hash, status) VALUES (1, 'admin@test.com', 'hash', 'active')`)
+	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, code, email, password_hash, user_type) VALUES (1, 'usr_adm001', 'admin@test.com', 'hash', 'platform')`)
 
 	_, _ = env.db.Pool.Exec(ctx, `
 		INSERT INTO platform.feature_flag (key, name, enabled)
@@ -471,7 +474,7 @@ func TestPlatform_UpsertFeatureFlag(t *testing.T) {
 	env := setupPlatformEnv(t)
 	ctx := context.Background()
 	_, _ = env.db.Pool.Exec(ctx, "TRUNCATE TABLE platform.feature_flag RESTART IDENTITY CASCADE")
-	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, email, password_hash, status) VALUES (1, 'admin@test.com', 'hash', 'active')`)
+	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, code, email, password_hash, user_type) VALUES (1, 'usr_adm001', 'admin@test.com', 'hash', 'platform')`)
 
 	req := schema.UpdateFeatureFlagRequest{
 		Name:    "New Feature",
@@ -506,7 +509,7 @@ func TestPlatform_UpsertFeatureFlag(t *testing.T) {
 func TestPlatform_UpsertFeatureFlag_InvalidInput(t *testing.T) {
 	env := setupPlatformEnv(t)
 	ctx := context.Background()
-	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, email, password_hash, status) VALUES (1, 'admin@test.com', 'hash', 'active')`)
+	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, code, email, password_hash, user_type) VALUES (1, 'usr_adm001', 'admin@test.com', 'hash', 'platform')`)
 
 	req := schema.UpdateFeatureFlagRequest{
 		Name:    "",
@@ -522,7 +525,7 @@ func TestPlatform_ListAuditLog(t *testing.T) {
 	env := setupPlatformEnv(t)
 	ctx := context.Background()
 	_, _ = env.db.Pool.Exec(ctx, "TRUNCATE TABLE platform.audit_log RESTART IDENTITY CASCADE")
-	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, email, password_hash, status) VALUES (1, 'admin@test.com', 'hash', 'active')`)
+	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, code, email, password_hash, user_type) VALUES (1, 'usr_adm001', 'admin@test.com', 'hash', 'platform')`)
 
 	_, _ = env.db.Pool.Exec(ctx, `
 		INSERT INTO platform.audit_log (actor_id, actor_type, action, resource_type, resource_id)
@@ -548,7 +551,7 @@ func TestPlatform_ListAuditLog_FilterAction(t *testing.T) {
 	env := setupPlatformEnv(t)
 	ctx := context.Background()
 	_, _ = env.db.Pool.Exec(ctx, "TRUNCATE TABLE platform.audit_log RESTART IDENTITY CASCADE")
-	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, email, password_hash, status) VALUES (1, 'admin@test.com', 'hash', 'active')`)
+	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, code, email, password_hash, user_type) VALUES (1, 'usr_adm001', 'admin@test.com', 'hash', 'platform')`)
 
 	_, _ = env.db.Pool.Exec(ctx, `
 		INSERT INTO platform.audit_log (actor_id, actor_type, action, resource_type)
@@ -577,7 +580,7 @@ func TestPlatform_ListIntegrationTraffic(t *testing.T) {
 	env := setupPlatformEnv(t)
 	ctx := context.Background()
 	_, _ = env.db.Pool.Exec(ctx, "TRUNCATE TABLE platform.integration_traffic RESTART IDENTITY CASCADE")
-	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, email, password_hash, status) VALUES (1, 'admin@test.com', 'hash', 'active')`)
+	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, code, email, password_hash, user_type) VALUES (1, 'usr_adm001', 'admin@test.com', 'hash', 'platform')`)
 
 	_, _ = env.db.Pool.Exec(ctx, `
 		INSERT INTO platform.integration_traffic (direction, provider, endpoint, method, status_code)
@@ -603,7 +606,7 @@ func TestPlatform_ListIntegrationTraffic_FilterDirection(t *testing.T) {
 	env := setupPlatformEnv(t)
 	ctx := context.Background()
 	_, _ = env.db.Pool.Exec(ctx, "TRUNCATE TABLE platform.integration_traffic RESTART IDENTITY CASCADE")
-	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, email, password_hash, status) VALUES (1, 'admin@test.com', 'hash', 'active')`)
+	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, code, email, password_hash, user_type) VALUES (1, 'usr_adm001', 'admin@test.com', 'hash', 'platform')`)
 
 	_, _ = env.db.Pool.Exec(ctx, `
 		INSERT INTO platform.integration_traffic (direction, provider, endpoint)

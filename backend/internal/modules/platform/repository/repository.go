@@ -353,7 +353,9 @@ func (r *PlatformRepository) ListNotificationEvents(ctx context.Context, notific
 func (r *PlatformRepository) GetBuyerEmail(ctx context.Context, buyerID int64) (string, error) {
 	var email string
 	err := r.db.Pool.QueryRow(ctx, `
-		SELECT contact_email FROM identity.buyer_profile WHERE id = $1
+		SELECT u.email FROM identity.buyer_profile bp
+		JOIN identity."user" u ON u.id = bp.user_id
+		WHERE bp.id = $1
 	`, buyerID).Scan(&email)
 	if err == pgx.ErrNoRows {
 		return "", database.ErrNotFound

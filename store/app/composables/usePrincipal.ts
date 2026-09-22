@@ -1,5 +1,5 @@
 import { computed, watch } from 'vue'
-import type { Principal } from '../../shared/principal'
+import type { Principal } from '#shared/principal'
 
 export function usePrincipal() {
   const session = useFetch<Principal>('/api/session')

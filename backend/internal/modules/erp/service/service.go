@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -82,8 +83,14 @@ func (s *ERPService) VerifyAndProcessWebhook(ctx context.Context, provider, topi
 		return nil, ErrWebhookUnauthorized
 	}
 
-	// Extract event ID from payload (simplified - in real impl would parse JSON)
-	eventID := uuid.NewString()
+	// Extract event ID from payload for deduplication
+	var payload struct {
+		EventID string `json:"event_id"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil || payload.EventID == "" {
+		payload.EventID = uuid.NewString()
+	}
+	eventID := payload.EventID
 
 	// Insert with dedup
 	event, created, err := s.repo.InsertWebhookEvent(ctx, provider, eventID, topic, string(body))
@@ -103,6 +110,9 @@ func (s *ERPService) VerifyAndProcessWebhook(ctx context.Context, provider, topi
 	}
 
 	_ = s.repo.UpdateWebhookStatus(ctx, event.ID, "applied")
+	event.Status = "applied"
+	nowApplied := time.Now()
+	event.AppliedAt = &nowApplied
 	return event, nil
 }
 

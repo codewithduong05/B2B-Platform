@@ -6,55 +6,33 @@
         <div class="footer-brand">
           <div class="footer-brand-header">
             <span class="material-symbols-outlined footer-brand-icon">verified_user</span>
-            <span class="footer-brand-text">Atlas SRM Assurance</span>
+            <span class="footer-brand-text">Atlas SRM</span>
           </div>
           <p class="footer-brand-desc">
-            Enterprise supplier relationship management, punchout catalog compliance, and multi-tier
-            procurement orchestration adhering to strict ISO 9001:2015 and SOC 2 Type II audit
-            standards.
+            Enterprise supplier relationship management and multi-tier
+            procurement orchestration.
           </p>
-          <div class="footer-certs">
-            <span class="footer-cert">ISO 9001 Certified</span>
-            <span class="footer-cert">SOC 2 Type II</span>
-            <span class="footer-cert">cXML PunchOut Ready</span>
-          </div>
         </div>
 
-        <!-- Sourcing Column -->
+        <!-- Quick Links Column -->
         <div class="footer-col">
-          <h4 class="footer-col-title">Sourcing &amp; Vendors</h4>
+          <h4 class="footer-col-title">Quick Links</h4>
           <nav class="footer-nav">
-            <a href="/supplier-onboarding">Supplier Onboarding</a>
-            <a href="/rfq">B2B Sourcing Events</a>
-            <a href="/contracts">Master Service Agreements</a>
-            <a href="/diversity">Diversity Sourcing</a>
+            <a href="/catalog">Catalog</a>
+            <a href="/orders">Orders</a>
+            <a href="/support">Support</a>
+            <a href="/faq">FAQ</a>
           </nav>
         </div>
 
-        <!-- Enterprise Terms Column -->
+        <!-- System Status Column -->
         <div class="footer-col">
-          <h4 class="footer-col-title">Enterprise Terms</h4>
-          <nav class="footer-nav">
-            <a href="/terms">Commercial Terms of Sale</a>
-            <a href="/credit">Revolving Credit Facilities</a>
-            <a href="/compliance">Supply Chain Compliance</a>
-            <a href="/sla">Enterprise SLA Guarantee</a>
-          </nav>
-        </div>
-
-        <!-- System & Integration Column -->
-        <div class="footer-col">
-          <h4 class="footer-col-title">System &amp; Integration</h4>
+          <h4 class="footer-col-title">System Status</h4>
           <div class="footer-system">
             <div class="footer-system-row">
               <span class="footer-status-dot"></span>
-              <span class="footer-system-label">PunchOut API: Operational</span>
+              <span class="footer-system-label">Platform: Operational</span>
             </div>
-            <p class="footer-system-detail">Average Response: 42ms</p>
-            <p class="footer-system-detail">SLA Uptime: 99.98%</p>
-            <a href="/docs/api" class="footer-system-link"
-              >Integration Docs &amp; Webhooks &rarr;</a
-            >
           </div>
         </div>
       </div>
@@ -62,14 +40,8 @@
       <!-- Bottom Bar -->
       <div class="footer-bottom">
         <p class="footer-copyright">
-          &copy; 2025 Atlas SRM Technologies Inc. All enterprise rights reserved. Governed under
-          Master Agreement #MA-77109.
+          &copy; 2025 Atlas SRM Technologies Inc. All rights reserved.
         </p>
-        <nav class="footer-legal">
-          <a href="/privacy">Privacy Policy</a>
-          <a href="/security">Security Architecture</a>
-          <a href="/noc">Global NOC Status</a>
-        </nav>
       </div>
     </div>
   </footer>

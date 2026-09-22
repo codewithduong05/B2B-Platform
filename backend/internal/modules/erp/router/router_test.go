@@ -34,7 +34,7 @@ func TestMain(m *testing.M) {
 		rawDB, err := sql.Open("pgx", cfg.PostgresDSN())
 		if err == nil && rawDB != nil {
 			_, _ = rawDB.Exec("SELECT pg_advisory_lock($1)", int64(erpTestDBLockKey))
-			_, _ = rawDB.Exec("DROP SCHEMA IF EXISTS catalog CASCADE; DROP SCHEMA IF EXISTS inventory CASCADE; DROP SCHEMA IF EXISTS identity CASCADE; DROP SCHEMA IF EXISTS pricing CASCADE; DROP SCHEMA IF EXISTS commerce CASCADE; DROP SCHEMA IF EXISTS payments CASCADE; DROP SCHEMA IF EXISTS promotions CASCADE; DROP SCHEMA IF EXISTS crm CASCADE; DROP SCHEMA IF EXISTS suppliers CASCADE; DROP SCHEMA IF EXISTS cms CASCADE; DROP SCHEMA IF EXISTS reports CASCADE; DROP SCHEMA IF EXISTS erp CASCADE; DROP TABLE IF EXISTS schema_migrations CASCADE; DROP TYPE IF EXISTS catalog_handling_class_type CASCADE;")
+			_, _ = rawDB.Exec("DROP SCHEMA IF EXISTS catalog CASCADE; DROP SCHEMA IF EXISTS inventory CASCADE; DROP SCHEMA IF EXISTS identity CASCADE; DROP SCHEMA IF EXISTS pricing CASCADE; DROP SCHEMA IF EXISTS commerce CASCADE; DROP SCHEMA IF EXISTS payments CASCADE; DROP SCHEMA IF EXISTS promotions CASCADE; DROP SCHEMA IF EXISTS crm CASCADE; DROP SCHEMA IF EXISTS suppliers CASCADE; DROP SCHEMA IF EXISTS cms CASCADE; DROP SCHEMA IF EXISTS reports CASCADE; DROP SCHEMA IF EXISTS erp CASCADE; DROP SCHEMA IF EXISTS platform CASCADE; DROP SCHEMA IF EXISTS ai CASCADE; DROP SCHEMA IF EXISTS analytics CASCADE; DROP TABLE IF EXISTS schema_migrations CASCADE; DROP TYPE IF EXISTS catalog_handling_class_type CASCADE;")
 
 			if err := database.RunMigrations(ctx, &cfg.Postgres, "file://../../../../migrations"); err != nil {
 				fmt.Printf("TestMain migration error: %v\n", err)
@@ -141,16 +141,21 @@ func erpWebhookDo(t *testing.T, env *erpEnv, topic string, body []byte, secret s
 func seedOrder(t *testing.T, env *erpEnv) int64 {
 	t.Helper()
 	ctx := context.Background()
-	var buyerID, supplierID, productID, unitID int64
+	var userID, buyerID, categoryID, supplierID, unitID, productID int64
 	_ = env.db.Pool.QueryRow(ctx,
-		`INSERT INTO identity.buyer_profile (code, company_name, contact_email) VALUES ('test_buyer_erp', 'Test', 'erp@test.com') RETURNING id`).Scan(&buyerID)
+		`INSERT INTO identity."user" (code, email, password_hash, user_type) VALUES ('usr_erp001', 'erp_user@test.com', 'hash', 'buyer') RETURNING id`).Scan(&userID)
 	_ = env.db.Pool.QueryRow(ctx,
-		`INSERT INTO catalog.supplier (code, company_name, status) VALUES ('test_sup_erp', 'TestSup', 'approved') RETURNING id`).Scan(&supplierID)
+		`INSERT INTO identity.buyer_profile (code, business_name, user_id) VALUES ('test_buyer_erp', 'Test', $1) RETURNING id`,
+		userID).Scan(&buyerID)
 	_ = env.db.Pool.QueryRow(ctx,
-		`INSERT INTO catalog.unit (code, name, abbreviation) VALUES ('erp_unit', 'ERP Unit', 'eu') RETURNING id`).Scan(&unitID)
+		`INSERT INTO catalog.category (code, name, slug) VALUES ('erp_cat', 'ERP Category', 'erp-cat') RETURNING id`).Scan(&categoryID)
 	_ = env.db.Pool.QueryRow(ctx,
-		`INSERT INTO catalog.product (code, name, supplier_id, base_unit_id, base_price_minor, status) VALUES ('erp_prod', 'ERP Product', $1, $2, 100, 'published') RETURNING id`,
-		supplierID, unitID).Scan(&productID)
+		`INSERT INTO catalog.supplier (code, supplier_id, name, slug) VALUES ('test_sup_erp', 1, 'TestSup', 'test-sup-erp') RETURNING id`).Scan(&supplierID)
+	_ = env.db.Pool.QueryRow(ctx,
+		`INSERT INTO catalog.unit (code, name, symbol) VALUES ('erp_unit', 'ERP Unit', 'eu') RETURNING id`).Scan(&unitID)
+	_ = env.db.Pool.QueryRow(ctx,
+		`INSERT INTO catalog.product (code, slug, name, category_id, handling_class, supplier_id, base_unit_id, base_price_minor, status) VALUES ('erp_prod', 'erp-prod', 'ERP Product', $1, 'ambient', $2, $3, 100, 'published') RETURNING id`,
+		categoryID, supplierID, unitID).Scan(&productID)
 	var orderID int64
 	_ = env.db.Pool.QueryRow(ctx,
 		`INSERT INTO commerce."order" (code, buyer_id, supplier_id, total_minor, status) VALUES ('erp_ord_test', $1, $2, 100, 'confirmed') RETURNING id`,
@@ -161,14 +166,16 @@ func seedOrder(t *testing.T, env *erpEnv) int64 {
 func seedProduct(t *testing.T, env *erpEnv) {
 	t.Helper()
 	ctx := context.Background()
-	var supplierID, unitID int64
+	var categoryID, supplierID, unitID int64
 	_ = env.db.Pool.QueryRow(ctx,
-		`INSERT INTO catalog.supplier (code, company_name, status) VALUES ('test_sup_erp2', 'TestSup2', 'approved') RETURNING id`).Scan(&supplierID)
+		`INSERT INTO catalog.category (code, name, slug) VALUES ('erp_cat_sync', 'ERP Category Sync', 'erp-cat-sync') RETURNING id`).Scan(&categoryID)
 	_ = env.db.Pool.QueryRow(ctx,
-		`INSERT INTO catalog.unit (code, name, abbreviation) VALUES ('erp_unit2', 'ERP Unit2', 'eu2') RETURNING id`).Scan(&unitID)
+		`INSERT INTO catalog.supplier (code, supplier_id, name, slug) VALUES ('test_sup_erp2', 1, 'TestSup2', 'test-sup-erp2') RETURNING id`).Scan(&supplierID)
+	_ = env.db.Pool.QueryRow(ctx,
+		`INSERT INTO catalog.unit (code, name, symbol) VALUES ('erp_unit2', 'ERP Unit2', 'eu2') RETURNING id`).Scan(&unitID)
 	_, _ = env.db.Pool.Exec(ctx,
-		`INSERT INTO catalog.product (code, name, supplier_id, base_unit_id, base_price_minor, status) VALUES ('erp_prod_sync', 'ERP Sync Product', $1, $2, 200, 'published')`,
-		supplierID, unitID)
+		`INSERT INTO catalog.product (code, slug, name, category_id, handling_class, supplier_id, base_unit_id, base_price_minor, status) VALUES ('erp_prod_sync', 'erp-prod-sync', 'ERP Sync Product', $1, 'ambient', $2, $3, 200, 'published')`,
+		categoryID, supplierID, unitID)
 }
 
 func TestERP_WebhookIngestion(t *testing.T) {

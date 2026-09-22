@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { AppError } from '../../shared/errors'
+import type { AppError } from '#shared/errors'
 
 const props = defineProps<{ error: AppError }>()
 

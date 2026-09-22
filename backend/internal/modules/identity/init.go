@@ -26,6 +26,11 @@ var (
 	AdminService = service.NewAdminService()
 )
 
+// NewRouter creates a new identity router with the given services.
+func NewRouter(authSvc *service.AuthService, buyerSvc *service.BuyerService, adminSvc *service.AdminService) *router.Router {
+	return router.New(authSvc, buyerSvc, adminSvc)
+}
+
 // Init initializes the identity module with database dependencies
 func Init(db *database.DB, jwtConfig *config.JWTConfig) {
 	// Create repositories
@@ -52,7 +57,7 @@ func Init(db *database.DB, jwtConfig *config.JWTConfig) {
 	)
 
 	// Initialize BuyerService
-	BuyerService.SetDependencies(buyerRepo, addressRepo, userRepo)
+	BuyerService.SetDependencies(buyerRepo, addressRepo, userRepo, verificationRepo)
 
 	// Initialize AdminService
 	AdminService.SetDependencies(

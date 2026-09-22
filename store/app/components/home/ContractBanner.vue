@@ -17,7 +17,6 @@
           <span class="material-symbols-outlined">receipt_long</span>
           Audit Rate Sheet
         </button>
-        <a href="/contracts" class="contract-banner-link"> View Agreement &rarr; </a>
       </div>
     </div>
   </section>

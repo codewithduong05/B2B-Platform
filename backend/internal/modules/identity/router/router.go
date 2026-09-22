@@ -3,6 +3,7 @@ package router
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -338,15 +339,17 @@ func (rt *Router) handleGetVerification(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Get buyer profile first
-	_, err := rt.buyerSvc.GetProfile(r.Context(), userID)
+	verification, err := rt.buyerSvc.GetVerificationStatus(r.Context(), userID)
 	if err != nil {
+		if errors.Is(err, service.ErrVerificationNotFound) {
+			rt.writeJSON(w, http.StatusOK, map[string]string{"status": "not_submitted"})
+			return
+		}
 		rt.handleAuthError(w, r, err)
 		return
 	}
 
-	// TODO: Get verification from verification service
-	rt.writeError(w, r, http.StatusNotImplemented, "not_implemented", "verification endpoint not fully implemented")
+	rt.writeJSON(w, http.StatusOK, verification)
 }
 
 func (rt *Router) handleSubmitVerification(w http.ResponseWriter, r *http.Request) {
@@ -362,8 +365,21 @@ func (rt *Router) handleSubmitVerification(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// TODO: Submit verification via verification service
-	rt.writeError(w, r, http.StatusNotImplemented, "not_implemented", "verification endpoint not fully implemented")
+	verification, err := rt.buyerSvc.SubmitVerification(r.Context(), userID, req)
+	if err != nil {
+		if errors.Is(err, service.ErrVerificationPending) {
+			rt.writeError(w, r, http.StatusConflict, "verification_pending", "a verification application is already pending or approved")
+			return
+		}
+		if errors.Is(err, service.ErrBuyerProfileNotFound) {
+			rt.writeError(w, r, http.StatusNotFound, "not_found", "buyer profile not found")
+			return
+		}
+		rt.handleAuthError(w, r, err)
+		return
+	}
+
+	rt.writeJSON(w, http.StatusCreated, verification)
 }
 
 // Admin handlers

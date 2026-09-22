@@ -99,7 +99,8 @@ func (rt *Router) RegisterRoutes(authMiddleware, adminMiddleware func(http.Handl
 func (rt *Router) handleGetCart(w http.ResponseWriter, r *http.Request) {
 	buyerID := PrincipalIDFromContext(r.Context())
 	if buyerID == 0 {
-		buyerID = 1 // Default fallback for tests or authenticated buyer context
+		rt.writeError(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
+		return
 	}
 
 	cart, err := rt.service.GetCart(r.Context(), buyerID)
@@ -114,7 +115,8 @@ func (rt *Router) handleGetCart(w http.ResponseWriter, r *http.Request) {
 func (rt *Router) handleAddCartItem(w http.ResponseWriter, r *http.Request) {
 	buyerID := PrincipalIDFromContext(r.Context())
 	if buyerID == 0 {
-		buyerID = 1
+		rt.writeError(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
+		return
 	}
 
 	var req schema.AddCartItemRequest
@@ -151,7 +153,8 @@ func (rt *Router) handleAddCartItem(w http.ResponseWriter, r *http.Request) {
 func (rt *Router) handleUpdateCartItem(w http.ResponseWriter, r *http.Request) {
 	buyerID := PrincipalIDFromContext(r.Context())
 	if buyerID == 0 {
-		buyerID = 1
+		rt.writeError(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
+		return
 	}
 
 	code := chi.URLParam(r, "code")
@@ -191,7 +194,8 @@ func (rt *Router) handleUpdateCartItem(w http.ResponseWriter, r *http.Request) {
 func (rt *Router) handleDeleteCartItem(w http.ResponseWriter, r *http.Request) {
 	buyerID := PrincipalIDFromContext(r.Context())
 	if buyerID == 0 {
-		buyerID = 1
+		rt.writeError(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
+		return
 	}
 
 	code := chi.URLParam(r, "code")
@@ -216,7 +220,8 @@ func (rt *Router) handleDeleteCartItem(w http.ResponseWriter, r *http.Request) {
 func (rt *Router) handleQuoteCart(w http.ResponseWriter, r *http.Request) {
 	buyerID := PrincipalIDFromContext(r.Context())
 	if buyerID == 0 {
-		buyerID = 1
+		rt.writeError(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
+		return
 	}
 
 	quote, err := rt.service.QuoteCart(r.Context(), buyerID)
@@ -231,7 +236,8 @@ func (rt *Router) handleQuoteCart(w http.ResponseWriter, r *http.Request) {
 func (rt *Router) handleApplyVoucher(w http.ResponseWriter, r *http.Request) {
 	buyerID := PrincipalIDFromContext(r.Context())
 	if buyerID == 0 {
-		buyerID = 1
+		rt.writeError(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
+		return
 	}
 
 	var req schema.ApplyVoucherRequest
@@ -275,7 +281,8 @@ func (rt *Router) writeVoucherError(w http.ResponseWriter, r *http.Request, err 
 func (rt *Router) handleCheckout(w http.ResponseWriter, r *http.Request) {
 	buyerID := PrincipalIDFromContext(r.Context())
 	if buyerID == 0 {
-		buyerID = 1
+		rt.writeError(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
+		return
 	}
 
 	idemKey := r.Header.Get("Idempotency-Key")
@@ -341,7 +348,8 @@ func (rt *Router) handleCheckout(w http.ResponseWriter, r *http.Request) {
 func (rt *Router) handleListOrders(w http.ResponseWriter, r *http.Request) {
 	buyerID := PrincipalIDFromContext(r.Context())
 	if buyerID == 0 {
-		buyerID = 1
+		rt.writeError(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
+		return
 	}
 
 	orders, err := rt.service.ListOrders(r.Context(), buyerID)
@@ -356,7 +364,8 @@ func (rt *Router) handleListOrders(w http.ResponseWriter, r *http.Request) {
 func (rt *Router) handleGetOrder(w http.ResponseWriter, r *http.Request) {
 	buyerID := PrincipalIDFromContext(r.Context())
 	if buyerID == 0 {
-		buyerID = 1
+		rt.writeError(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
+		return
 	}
 
 	code := chi.URLParam(r, "code")
@@ -379,10 +388,7 @@ func (rt *Router) handleGetOrder(w http.ResponseWriter, r *http.Request) {
 }
 
 func buyerIDOf(r *http.Request) int64 {
-	if id := PrincipalIDFromContext(r.Context()); id != 0 {
-		return id
-	}
-	return 1
+	return PrincipalIDFromContext(r.Context())
 }
 
 func (rt *Router) handleRequestReturn(w http.ResponseWriter, r *http.Request) {

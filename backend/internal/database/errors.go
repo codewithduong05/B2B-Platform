@@ -48,11 +48,8 @@ func (e *Error) Unwrap() error {
 //go:noinline
 func NewError(err error) *Error {
 	var pgErr *pgconn.PgError
-	fmt.Printf("DEBUG NewError: err type = %T, err = %+v\n", err, err)
 	ok := errors.As(err, &pgErr)
-	fmt.Printf("DEBUG NewError: errors.As ok = %v, pgErr = %+v\n", ok, pgErr)
 	if ok {
-		fmt.Printf("DEBUG NewError: pgErr.Code = %q, pgErr.Message = %q\n", pgErr.Code, pgErr.Message)
 		return &Error{
 			Code:    string(pgErr.Code),
 			Message: pgErr.Message,
@@ -89,11 +86,8 @@ func IsConstraintViolation(err error) bool {
 // ErrorCode returns the PostgreSQL error code
 func ErrorCode(err error) string {
 	var pgErr *pgconn.PgError
-	fmt.Printf("DEBUG ErrorCode: err type = %T\n", err)
 	ok := errors.As(err, &pgErr)
-	fmt.Printf("DEBUG ErrorCode: errors.As ok = %v, pgErr = %+v\n", ok, pgErr)
 	if ok {
-		fmt.Printf("DEBUG ErrorCode: pgErr.Code = %q\n", pgErr.Code)
 		return string(pgErr.Code)
 	}
 	return ""

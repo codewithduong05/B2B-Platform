@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import ErrorNotice from '~/components/ErrorNotice.vue'
-import { createAppError, isWireError, statusCodeToErrorCode } from '../../shared/errors'
-import type { AppError } from '../../shared/errors'
+import { createAppError, isWireError, statusCodeToErrorCode } from '#shared/errors'
+import type { AppError } from '#shared/errors'
 
 definePageMeta({ title: 'Health' })
 
