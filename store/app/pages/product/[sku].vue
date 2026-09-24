@@ -26,7 +26,6 @@ async function handleAddToCart() {
   try {
     await addToCart(product.value.sku, selectedQty.value)
   } catch {
-    // Cart requires auth
   } finally {
     addingToCart.value = false
   }
@@ -39,13 +38,10 @@ onMounted(() => {
 
 <template>
   <div class="product-page">
-    <!-- Loading -->
     <div v-if="loading" class="product-loading">Loading product details...</div>
 
-    <!-- Error -->
     <div v-else-if="error" class="product-error">{{ error }}</div>
 
-    <!-- Content -->
     <template v-else-if="product">
       <!-- Breadcrumb -->
       <nav class="product-breadcrumb">
@@ -66,109 +62,67 @@ onMounted(() => {
 
       <!-- Classification Badges -->
       <div class="product-badges">
+        <span class="product-handling-badge">
+          <span class="material-symbols-outlined">thermostat</span>
+          {{ product.handling_class }}
+        </span>
         <span v-for="cert in product.certifications" :key="cert" class="product-cert-badge">
           <span class="material-symbols-outlined">verified</span>
           {{ cert }}
         </span>
-        <span class="product-unspsc-badge">UNSPSC {{ product.unspsc }}</span>
+        <span v-if="product.unspsc" class="product-unspsc-badge">UNSPSC {{ product.unspsc }}</span>
       </div>
 
       <!-- 2-Column Layout -->
       <div class="product-layout">
-        <!-- Left: Product Info -->
+        <!-- Left Column: Image + Specs + Description -->
         <div class="product-left">
-          <div class="product-specs">
-            <h3 class="product-specs-title">Specifications</h3>
-            <div v-if="product.specs.length" class="product-specs-grid">
-              <template v-for="spec in product.specs" :key="spec.label">
-                <div class="product-spec-label" :class="{ 'product-spec-highlight': spec.highlight }">
-                  {{ spec.label }}
-                </div>
-                <div class="product-spec-value" :class="{ 'product-spec-highlight': spec.highlight }">
-                  {{ spec.value }}
-                </div>
-              </template>
-            </div>
-            <p v-else class="product-specs-empty">No specifications available.</p>
-          </div>
+          <ProductImageGallery :images="product.images" />
+
+          <ProductSpecsGrid :specs="product.specs" />
 
           <div v-if="product.description" class="product-description">
             <h3 class="product-description-title">Description</h3>
             <p class="product-description-body">{{ product.description }}</p>
           </div>
+
+          <ProductEngineeringArtifacts
+            v-if="product.artifacts.length"
+            :artifacts="product.artifacts"
+          />
         </div>
 
-        <!-- Right: Purchasing Command -->
+        <!-- Right Column: Purchase Command -->
         <div class="product-right">
-          <!-- Purchasing Card -->
+          <!-- Identity Header -->
+          <div class="product-identity">
+            <div class="product-identity-meta">
+              <span v-if="product.supplier.name" class="product-partner-badge">
+                <span class="material-symbols-outlined">verified</span>
+                {{ product.supplier.name }} Partner
+              </span>
+              <span class="product-mpn">MPN: {{ product.mpn }}</span>
+            </div>
+            <h1 class="product-title">{{ product.name }}</h1>
+            <div class="product-sku-line">
+              <span>Sku: <strong>{{ product.sku }}</strong></span>
+            </div>
+          </div>
+
+          <!-- Pricing Card -->
           <div class="product-purchase-card">
-            <!-- Header Metadata -->
-            <div class="product-purchase-header">
-              <div class="product-purchase-meta">
-                <span class="product-partner-badge">
-                  <span class="material-symbols-outlined">verified</span>
-                  {{ product.supplier.name }} Partner
-                </span>
-                <span class="product-mpn">MPN: {{ product.mpn }}</span>
-              </div>
-              <h1 class="product-title">{{ product.name }}</h1>
-              <div class="product-sku-line">
-                <span
-                  >SKU: <strong>{{ product.sku }}</strong></span
-                >
-                <span class="product-sku-sep">&bull;</span>
-                <span class="product-msa">In Master Service Agreement</span>
-              </div>
-            </div>
+            <ProductPriceCalculation
+              :unit-price="currentUnitPrice"
+              :tiers="product.pricing.tiers"
+              :unit="product.pricing.unit"
+              :active-tier-index="activeTierIndex"
+              :qty="selectedQty"
+              :subtotal="subtotal"
+              @update:qty="setQty"
+              @adjust="adjustQty"
+            />
 
-            <div class="product-price-section">
-              <div class="product-price-row">
-                <span class="product-price-label">Unit Price</span>
-                <span class="product-price-value">${{ currentUnitPrice.toFixed(2) }} / {{ product.pricing.unit }}</span>
-              </div>
-              <div v-if="product.pricing.tiers.length > 1" class="product-tiers">
-                <div
-                  v-for="(tier, i) in product.pricing.tiers"
-                  :key="tier.id"
-                  class="product-tier"
-                  :class="{ 'product-tier-active': i === activeTierIndex }"
-                >
-                  <span class="product-tier-range">{{ tier.range }}</span>
-                  <span class="product-tier-price">${{ tier.price.toFixed(2) }}</span>
-                  <span class="product-tier-discount">{{ tier.discount }}</span>
-                </div>
-              </div>
-              <div class="product-qty-row">
-                <label class="product-qty-label">Quantity</label>
-                <div class="product-qty-controls">
-                  <button class="button button-sm" @click="adjustQty(-1)">-</button>
-                  <input
-                    type="number"
-                    class="product-qty-input"
-                    :value="selectedQty"
-                    min="1"
-                    @change="(e: Event) => setQty(Number((e.target as HTMLInputElement).value) || 1)"
-                  />
-                  <button class="button button-sm" @click="adjustQty(1)">+</button>
-                </div>
-              </div>
-              <div class="product-subtotal-row">
-                <span class="product-subtotal-label">Subtotal</span>
-                <span class="product-subtotal-value">${{ subtotal.toFixed(2) }}</span>
-              </div>
-            </div>
-
-            <div v-if="product.stock.length" class="product-stock-section">
-              <h4 class="product-stock-title">Availability</h4>
-              <div v-for="loc in product.stock" :key="loc.warehouse" class="product-stock-row">
-                <span class="product-stock-warehouse">{{ loc.warehouse }}</span>
-                <span class="product-stock-units" :class="{ 'product-stock-unavailable': loc.units === 0 }">
-                  {{ loc.units }} units
-                </span>
-              </div>
-            </div>
-
-            <!-- Action CTAs -->
+            <!-- CTAs -->
             <div class="product-ctas">
               <button class="button product-cta-primary" :disabled="addingToCart" @click="handleAddToCart">
                 <span class="material-symbols-outlined">shopping_cart</span>
@@ -181,12 +135,18 @@ onMounted(() => {
             </div>
           </div>
 
-          <div class="product-supplier-card">
-            <h3 class="product-supplier-title">Supplier</h3>
-            <div class="product-supplier-info">
-              <span class="product-supplier-name">{{ product.supplier.name }}</span>
-            </div>
-          </div>
+          <!-- Stock Radar -->
+          <ProductStockRadar
+            v-if="product.stock.length"
+            :locations="product.stock"
+            :total-stock="product.totalStock"
+          />
+
+          <!-- Supplier Card -->
+          <ProductSupplierCard
+            v-if="product.supplier.name"
+            :supplier="product.supplier"
+          />
         </div>
       </div>
     </template>
@@ -264,6 +224,24 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.product-handling-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius);
+  background-color: var(--tertiary-fixed);
+  font-size: var(--text-label-sm);
+  font-weight: 600;
+  color: var(--tertiary);
+  text-transform: uppercase;
+}
+
+.product-handling-badge .material-symbols-outlined {
+  font-size: 14px;
 }
 
 .product-cert-badge {
@@ -311,24 +289,14 @@ onMounted(() => {
   gap: var(--space-lg);
 }
 
-/* ── Purchase Card ── */
-.product-purchase-card {
-  background-color: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
-  padding: var(--space-lg);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-md);
-}
-
-.product-purchase-header {
+/* ── Identity ── */
+.product-identity {
   display: flex;
   flex-direction: column;
   gap: var(--space-xs);
 }
 
-.product-purchase-meta {
+.product-identity-meta {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -376,13 +344,15 @@ onMounted(() => {
   color: var(--on-surface);
 }
 
-.product-sku-sep {
-  color: var(--outline-variant);
-}
-
-.product-msa {
-  color: var(--secondary);
-  font-weight: 500;
+/* ── Purchase Card ── */
+.product-purchase-card {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  padding: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
 }
 
 /* ── CTAs ── */
@@ -417,49 +387,6 @@ onMounted(() => {
   color: var(--secondary);
 }
 
-/* ── Specs ── */
-.product-specs {
-  background-color: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
-  padding: var(--space-lg);
-}
-
-.product-specs-title {
-  font-size: var(--text-headline-sm);
-  font-weight: 700;
-  color: var(--on-surface);
-  margin: 0 0 var(--space-md);
-}
-
-.product-specs-grid {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: var(--space-sm) var(--space-lg);
-}
-
-.product-spec-label {
-  font-size: var(--text-label-sm);
-  font-weight: 600;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-label-sm);
-}
-
-.product-spec-value {
-  font-size: var(--text-body-sm);
-  color: var(--on-surface);
-}
-
-.product-spec-highlight {
-  color: var(--secondary);
-}
-
-.product-specs-empty {
-  font-size: var(--text-body-sm);
-  color: var(--muted);
-}
-
 /* ── Description ── */
 .product-description {
   background-color: var(--surface);
@@ -480,168 +407,6 @@ onMounted(() => {
   font-size: var(--text-body-md);
   color: var(--muted);
   line-height: 1.6;
-}
-
-/* ── Price Section ── */
-.product-price-section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-md);
-  padding: var(--space-md) 0;
-  border-bottom: 1px solid var(--surface-container-high);
-}
-
-.product-price-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-}
-
-.product-price-label {
-  font-size: var(--text-label-md);
-  color: var(--muted);
-}
-
-.product-price-value {
-  font-size: var(--text-headline-md);
-  font-weight: 700;
-  color: var(--on-surface);
-}
-
-.product-tiers {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-xs);
-}
-
-.product-tier {
-  display: grid;
-  grid-template-columns: 1fr auto auto;
-  gap: var(--space-sm);
-  padding: var(--space-xs) var(--space-sm);
-  border-radius: var(--radius);
-  font-size: var(--text-body-sm);
-  color: var(--muted);
-}
-
-.product-tier-active {
-  background-color: var(--secondary-fixed);
-  color: var(--on-surface);
-}
-
-.product-tier-range {
-  font-weight: 600;
-}
-
-.product-tier-price {
-  font-weight: 600;
-  color: var(--on-surface);
-}
-
-.product-tier-discount {
-  color: var(--secondary);
-  font-size: var(--text-label-sm);
-}
-
-.product-qty-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-md);
-}
-
-.product-qty-label {
-  font-size: var(--text-label-md);
-  color: var(--muted);
-}
-
-.product-qty-controls {
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-}
-
-.product-qty-input {
-  width: 56px;
-  height: 36px;
-  text-align: center;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  font-size: var(--text-body-md);
-}
-
-.product-subtotal-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  padding-top: var(--space-sm);
-  border-top: 1px solid var(--surface-container-high);
-}
-
-.product-subtotal-label {
-  font-size: var(--text-label-md);
-  font-weight: 600;
-  color: var(--on-surface);
-}
-
-.product-subtotal-value {
-  font-size: var(--text-headline-sm);
-  font-weight: 700;
-  color: var(--on-surface);
-}
-
-/* ── Stock Section ── */
-.product-stock-section {
-  padding: var(--space-md) 0;
-}
-
-.product-stock-title {
-  font-size: var(--text-label-md);
-  font-weight: 600;
-  color: var(--on-surface);
-  margin: 0 0 var(--space-sm);
-}
-
-.product-stock-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: var(--space-xs) 0;
-  font-size: var(--text-body-sm);
-}
-
-.product-stock-warehouse {
-  color: var(--muted);
-}
-
-.product-stock-units {
-  font-weight: 600;
-  color: var(--on-surface);
-}
-
-.product-stock-unavailable {
-  color: var(--error);
-}
-
-/* ── Supplier Card ── */
-.product-supplier-card {
-  background-color: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
-  padding: var(--space-lg);
-}
-
-.product-supplier-title {
-  font-size: var(--text-headline-sm);
-  font-weight: 700;
-  color: var(--on-surface);
-  margin: 0 0 var(--space-md);
-}
-
-.product-supplier-name {
-  font-size: var(--text-body-md);
-  font-weight: 600;
-  color: var(--on-surface);
 }
 
 @media (max-width: 1024px) {

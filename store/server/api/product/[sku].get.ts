@@ -218,6 +218,7 @@ function mapProductDetail(data: UpstreamProductDetail, stockLevels: StockLevelSu
     name: data.name,
     description: data.description || data.short_description || '',
     mpn: data.sku || data.code,
+    handling_class: data.handling_class || 'ambient',
     supplier: {
       name: data.supplier?.name || data.supplier_code || 'Unknown',
       id: data.supplier?.code || data.supplier_code || '',

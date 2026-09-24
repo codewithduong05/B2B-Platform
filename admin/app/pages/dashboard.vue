@@ -5,34 +5,83 @@
       <p class="text-sm text-muted mt-1">Operational overview — real-time data from backend</p>
     </header>
 
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
       <div class="stat-card">
+        <div class="stat-icon stat-icon--primary">inventory_2</div>
         <div class="stat-label">Total Products</div>
-        <div class="stat-value">{{ stats?.productCount ?? '—' }}</div>
+        <div class="stat-value">{{ stats?.productCount.toLocaleString() }}</div>
       </div>
       <div class="stat-card">
+        <div class="stat-icon stat-icon--info">receipt_long</div>
         <div class="stat-label">Active Orders</div>
-        <div class="stat-value">{{ stats?.orderCount ?? '—' }}</div>
+        <div class="stat-value">{{ stats?.orderCount.toLocaleString() }}</div>
       </div>
       <div class="stat-card stat-card--warning">
+        <div class="stat-icon stat-icon--warning">warning</div>
         <div class="stat-label">Low Stock Items</div>
-        <div class="stat-value">{{ stats?.lowStockItems ?? '—' }}</div>
+        <div class="stat-value">{{ stats?.lowStockItems.toLocaleString() }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon stat-icon--success">check_circle</div>
+        <div class="stat-label">Pending Orders</div>
+        <div class="stat-value">{{ stats?.pendingOrders.toLocaleString() }}</div>
       </div>
     </div>
 
-    <div class="card">
-      <h2 class="card-title">Quick Actions</h2>
-      <div class="flex gap-3 flex-wrap">
-        <NuxtLink to="/products" class="btn btn--primary">Manage Products</NuxtLink>
-        <NuxtLink to="/orders" class="btn btn--secondary">View Orders</NuxtLink>
-        <NuxtLink to="/inventory" class="btn btn--secondary">Check Inventory</NuxtLink>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div class="card">
+        <h2 class="card-title">Quick Actions</h2>
+        <div class="flex gap-3 flex-wrap">
+          <NuxtLink to="/products" class="btn btn--primary">Manage Products</NuxtLink>
+          <NuxtLink to="/orders" class="btn btn--secondary">View Orders</NuxtLink>
+          <NuxtLink to="/inventory" class="btn btn--secondary">Check Inventory</NuxtLink>
+          <NuxtLink to="/customers" class="btn btn--secondary">Customers</NuxtLink>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2 class="card-title">System Status</h2>
+        <div class="status-list">
+          <div class="status-row">
+            <span class="status-dot status-dot--ok"></span>
+            <span>Backend API</span>
+          </div>
+          <div class="status-row">
+            <span class="status-dot status-dot--ok"></span>
+            <span>Database</span>
+          </div>
+          <div class="status-row">
+            <span class="status-dot status-dot--ok"></span>
+            <span>BFF Proxy</span>
+          </div>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-const { data: stats } = await useFetch('/api/home/stats')
+definePageMeta({ title: 'Dashboard' })
+
+interface Stats {
+  productCount: number
+  orderCount: number
+  lowStockItems: number
+  pendingOrders: number
+}
+
+const { data: stats } = await useAsyncData<Stats>(
+  'home-stats',
+  () => $fetch('/api/home/stats'),
+  {
+    default: () => ({
+      productCount: 0,
+      orderCount: 0,
+      lowStockItems: 0,
+      pendingOrders: 0,
+    }),
+  },
+)
 </script>
 
 <style scoped>
@@ -41,11 +90,23 @@ const { data: stats } = await useFetch('/api/home/stats')
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 1.25rem;
+  position: relative;
 }
 
 .stat-card--warning {
   border-color: var(--error);
 }
+
+.stat-icon {
+  font-family: 'Material Symbols Outlined';
+  font-size: 20px;
+  margin-bottom: 0.5rem;
+}
+
+.stat-icon--primary { color: var(--secondary); }
+.stat-icon--info { color: #3b82f6; }
+.stat-icon--warning { color: var(--error); }
+.stat-icon--success { color: #16a34a; }
 
 .stat-label {
   font-size: 0.75rem;
@@ -102,5 +163,28 @@ const { data: stats } = await useFetch('/api/home/stats')
 
 .btn:hover {
   opacity: 0.9;
+}
+
+.status-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.status-dot--ok {
+  background: #16a34a;
 }
 </style>

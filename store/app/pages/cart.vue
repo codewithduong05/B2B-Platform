@@ -20,14 +20,25 @@ interface CartResponse {
   status: string
 }
 
+interface QuoteResult {
+  quote_id: string
+  total_minor: number
+  currency: string
+  lines: Array<{ line_code: string; unit_price_minor: number; line_total_minor: number }>
+  valid_until: string
+}
+
 const cart = ref<CartResponse | null>(null)
 const loading = ref(true)
 const error = ref('')
 const updating = ref<string | null>(null)
+const quoting = ref(false)
+const quote = ref<QuoteResult | null>(null)
 
 async function loadCart() {
   loading.value = true
   error.value = ''
+  quote.value = null
   try {
     cart.value = await $fetch<CartResponse>('/api/cart')
   } catch (e: any) {
@@ -51,7 +62,6 @@ async function updateQuantity(code: string, qty: number) {
     })
     await loadCart()
   } catch {
-    // Silently fail — cart state preserved
   } finally {
     updating.value = null
   }
@@ -63,9 +73,18 @@ async function removeItem(code: string) {
     await $fetch(`/api/cart/items/${code}`, { method: 'DELETE' })
     await loadCart()
   } catch {
-    // Silently fail
   } finally {
     updating.value = null
+  }
+}
+
+async function requestQuote() {
+  quoting.value = true
+  try {
+    quote.value = await $fetch<QuoteResult>('/api/cart/quote', { method: 'POST' })
+  } catch {
+  } finally {
+    quoting.value = false
   }
 }
 
@@ -79,6 +98,11 @@ const groupedBySupplier = computed(() => {
   }
   return Object.entries(groups).map(([supplier, lines]) => ({ supplier, lines }))
 })
+
+const formatPrice = (amount: number, currency: string) => {
+  if (currency === 'VND') return `${amount.toLocaleString()}đ`
+  return `$${(amount / 100).toFixed(2)}`
+}
 
 onMounted(loadCart)
 </script>
@@ -114,6 +138,9 @@ onMounted(loadCart)
               <div class="cart-line-info">
                 <span class="cart-line-name">{{ line.product_name }}</span>
                 <span class="cart-line-sku">SKU: {{ line.product_code }}</span>
+                <span class="cart-line-unit-price">
+                  {{ formatPrice(line.unit_price, line.currency) }} / unit
+                </span>
               </div>
               <div class="cart-line-qty">
                 <button
@@ -133,7 +160,7 @@ onMounted(loadCart)
                 </button>
               </div>
               <div class="cart-line-price">
-                {{ line.currency === 'VND' ? `${line.line_total.toLocaleString()}đ` : `$${(line.line_total / 100).toFixed(2)}` }}
+                {{ formatPrice(line.line_total, line.currency) }}
               </div>
               <button
                 class="cart-line-remove"
@@ -154,9 +181,32 @@ onMounted(loadCart)
           </div>
           <div class="cart-summary-row cart-summary-total">
             <span>Total</span>
-            <span>{{ cart.currency === 'VND' ? `${cart.subtotal.toLocaleString()}đ` : `$${(cart.subtotal / 100).toFixed(2)}` }}</span>
+            <span>{{ formatPrice(cart.subtotal, cart.currency) }}</span>
           </div>
+
+          <div v-if="quote" class="cart-quote-result">
+            <div class="cart-quote-header">
+              <span class="material-symbols-outlined">request_quote</span>
+              <span>Volume Quote</span>
+            </div>
+            <div class="cart-quote-row">
+              <span>Quoted Total</span>
+              <span>{{ formatPrice(quote.total_minor, quote.currency) }}</span>
+            </div>
+            <div class="cart-quote-row cart-quote-valid">
+              Valid until {{ new Date(quote.valid_until).toLocaleDateString() }}
+            </div>
+          </div>
+
           <a href="/checkout" class="cart-checkout-cta">Proceed to Checkout →</a>
+          <button
+            class="cart-quote-btn"
+            :disabled="quoting"
+            @click="requestQuote"
+          >
+            <span class="material-symbols-outlined">request_quote</span>
+            {{ quoting ? 'Requesting...' : 'Request Volume Quote' }}
+          </button>
           <a href="/catalog" class="cart-continue">Continue Shopping</a>
         </div>
       </div>
@@ -268,6 +318,7 @@ onMounted(loadCart)
 .cart-line-info { flex: 1; display: flex; flex-direction: column; gap: 2px; }
 .cart-line-name { font-weight: 600; color: var(--on-surface); }
 .cart-line-sku { font-size: var(--text-label-sm); color: var(--muted); font-family: monospace; }
+.cart-line-unit-price { font-size: var(--text-label-sm); color: var(--muted); }
 
 .cart-line-qty {
   display: flex;
@@ -357,6 +408,57 @@ onMounted(loadCart)
   text-decoration: none;
   font-weight: 600;
   font-size: var(--text-label-md);
+}
+
+.cart-quote-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  height: 40px;
+  border: 1px solid var(--secondary);
+  border-radius: var(--radius-lg);
+  background: transparent;
+  color: var(--secondary);
+  font-family: var(--font-family);
+  font-size: var(--text-label-md);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cart-quote-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.cart-quote-btn .material-symbols-outlined { font-size: 18px; }
+
+.cart-quote-result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border: 1px solid var(--secondary);
+  border-radius: var(--radius-lg);
+  background: var(--secondary-fixed);
+}
+
+.cart-quote-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-weight: 600;
+  color: var(--on-surface);
+}
+
+.cart-quote-header .material-symbols-outlined { font-size: 18px; color: var(--secondary); }
+
+.cart-quote-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--text-body-sm);
+  color: var(--muted);
+}
+
+.cart-quote-valid {
+  font-size: var(--text-label-sm);
+  font-style: italic;
 }
 
 .cart-continue {

@@ -26,22 +26,21 @@ const CATEGORY_ICONS: Record<string, string> = {
   'raw-materials': 'inventory_2',
 }
 
-const categories = ref<CategoryBentoItem[]>([])
 
-onMounted(async () => {
-  try {
-    const data = await $fetch<{ items: ApiCategory[] }>('/api/home/categories')
-    categories.value = (data.items || []).map((c) => ({
-      title: c.name,
-      desc: c.description || c.name,
-      path: `/catalog?category=${c.slug}`,
-      icon: CATEGORY_ICONS[c.slug] || 'category',
-      count: c.productCount > 0 ? `${c.productCount} products` : '',
-    }))
-  } catch {
-    categories.value = []
-  }
-})
+
+const { data: categoryData } = await useAsyncData(() => $fetch<{ items: ApiCategory[] }>('/api/home/categories'), {
+  default: () => ({ items: [] }),
+});
+
+const categories = computed(() => {
+  return (categoryData.value?.items || []).map((c) => ({
+    title: c.name,
+    desc: c.description || c.name,
+    path: `/catalog?category=${c.code}`,
+    icon: CATEGORY_ICONS[c.slug] || 'category',
+    count: c.productCount > 0 ? `${c.productCount} products` : '',
+  }));
+});
 </script>
 
 <template>

@@ -4,6 +4,7 @@ export interface ProductDetail {
   name: string
   description: string
   mpn: string
+  handling_class: string
   supplier: {
     name: string
     id: string

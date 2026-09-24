@@ -23,7 +23,7 @@ import (
 	"github.com/atlas-platform/backend/internal/modules/platform/schema"
 )
 
-const platformTestDBLockKey = 1946819413
+const platformTestDBLockKey = 1946819412
 
 func TestMain(m *testing.M) {
 	ctx := context.Background()
@@ -197,6 +197,7 @@ func TestPlatform_UpdateTemplate(t *testing.T) {
 func TestPlatform_SendNotification(t *testing.T) {
 	env := setupPlatformEnv(t)
 	ctx := context.Background()
+	_, _ = env.db.Pool.Exec(ctx, "TRUNCATE TABLE identity.user_role, identity.role_permission, identity.permission, identity.role, identity.buyer_profile, identity.user RESTART IDENTITY CASCADE")
 	_, _ = env.db.Pool.Exec(ctx, "TRUNCATE TABLE platform.notification, platform.notification_event, platform.notification_template RESTART IDENTITY CASCADE")
 	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, code, email, password_hash, user_type) VALUES (1, 'usr_adm001', 'admin@test.com', 'hash', 'platform')`)
 	_, _ = env.db.Pool.Exec(ctx, `INSERT INTO identity."user" (id, code, email, password_hash, user_type) VALUES (100, 'usr_buy001', 'buyer@test.com', 'hash', 'buyer')`)

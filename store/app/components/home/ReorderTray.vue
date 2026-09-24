@@ -9,7 +9,23 @@ interface ReorderItem {
 }
 
 const { addToCart } = useCart()
-const items = ref<ReorderItem[]>([])
+const { data: orders } = await useAsyncData(() => $fetch<any[]>('/api/orders'), {
+  default: () => [],
+});
+
+const items = computed<ReorderItem[]>(() => {
+  if (!orders.value || orders.value.length === 0) return [];
+
+  // For demonstration, taking the first order and fabricating reorder items
+  // In a real scenario, this would involve more complex logic to identify frequently reordered items
+  const firstOrder = orders.value[0];
+  return firstOrder.lines?.map((line: any) => ({
+    sku: line.product_code || 'UNKNOWN_SKU',
+    title: line.product_name || 'Unknown Product',
+    lastOrder: new Date(firstOrder.created_at).toLocaleDateString(),
+    qty: line.quantity || 1,
+  })) || [];
+});
 
 function incrementQty(item: ReorderItem) {
   item.qty++

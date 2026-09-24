@@ -49,7 +49,7 @@ export default defineEventHandler(async () => {
             requestId,
           },
           'GET',
-          `/api/v1/catalog/products?page=1&page_size=1&category=${cat.slug}`,
+          `/api/v1/catalog/products?page=1&page_size=1&category=${cat.code}`,
         )
         if (result.status === 200) {
           count = (result.body as UpstreamListResponse).total || 0

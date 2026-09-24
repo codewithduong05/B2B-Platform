@@ -32,7 +32,7 @@
         </tr>
       </thead>
       <tbody>
-        <tr v-for="o in orders" :key="o.id">
+        <tr v-for="o in orders" :key="o.id" class="clickable-row" @click="navigateTo(`/orders/${o.id}`)">
           <td class="font-mono text-xs">{{ o.code }}</td>
           <td>{{ o.buyer_name ?? '—' }}</td>
           <td>
@@ -118,6 +118,10 @@ function statusClass(s: string): string {
 
 .data-table tbody tr:hover {
   background: var(--surface-container-low);
+}
+
+.clickable-row {
+  cursor: pointer;
 }
 
 .badge {

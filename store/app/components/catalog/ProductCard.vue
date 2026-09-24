@@ -11,6 +11,10 @@ const qty = ref(1)
     <div class="product-card-top">
       <div class="product-card-badges">
         <span class="product-card-supplier">{{ product.supplier }}</span>
+        <span v-if="product.specs" class="product-card-handling">
+          <span class="material-symbols-outlined">thermostat</span>
+          {{ product.specs }}
+        </span>
         <span class="product-card-sku">SKU: {{ product.sku }}</span>
       </div>
       <div class="product-card-img">
@@ -90,6 +94,23 @@ const qty = ref(1)
   font-weight: 600;
   color: var(--secondary);
   text-transform: uppercase;
+}
+
+.product-card-handling {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px;
+  border-radius: var(--radius);
+  background-color: var(--tertiary-fixed, #fef3c7);
+  font-size: var(--text-label-sm);
+  font-weight: 600;
+  color: var(--tertiary, #d97706);
+  text-transform: capitalize;
+}
+
+.product-card-handling .material-symbols-outlined {
+  font-size: 12px;
 }
 
 .product-card-sku {

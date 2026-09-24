@@ -4,7 +4,10 @@ import { ref } from 'vue'
 const searchQuery = ref('')
 const searchScope = ref('all')
 
-const categories: Array<{ label: string; path: string }> = []
+const { data: categories } = await useAsyncData(() => $fetch<{ items: { name: string; slug: string; code:string }[] }>('/api/home/categories'), {
+  default: () => ({ items: [] }),
+  transform: (data) => (data.items || []).map(c => ({ label: c.name, path: `/catalog?category=${c.code}` }))
+});
 </script>
 
 <template>

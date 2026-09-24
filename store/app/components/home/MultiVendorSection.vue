@@ -1,18 +1,8 @@
 <script setup lang="ts">
-const vendorCount = ref(0)
-
-async function loadVendorCount() {
-  try {
-    const data = await $fetch<{ suppliers: number }>('/api/home/stats')
-    vendorCount.value = data.suppliers
-  } catch {
-    // Stats unavailable
-  }
-}
-
-onMounted(() => {
-  loadVendorCount()
-})
+const { data: stats } = await useAsyncData(() => $fetch('/api/home/stats'), {
+  default: () => ({ suppliers: 0 }),
+});
+const vendorCount = computed(() => stats.value?.suppliers || 0);
 </script>
 
 <template>

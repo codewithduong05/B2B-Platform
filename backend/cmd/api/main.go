@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -81,6 +82,30 @@ func main() {
 
 	logger.Init(cfg.Log.Level, cfg.Log.Format, cfg.App.ServiceName)
 
+	// Force database to clean state to avoid dirty migration errors
+	migrator, err := database.NewMigrator(&cfg.Postgres, cfg.Migration.Path)
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to create migrator", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
+	defer migrator.Close()
+	
+	// Check current migration version
+	version, dirty, err := migrator.Version(ctx)
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to get migration version", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
+	
+	// Force clean state if database is dirty
+	if dirty {
+		slog.WarnContext(ctx, "forcing database to clean state", slog.Int("current_version", int(version)))
+		if err := migrator.Force(ctx, 0); err != nil {
+			slog.ErrorContext(ctx, "failed to force database to clean state", slog.String("error", err.Error()))
+			os.Exit(1)
+		}
+	}
+	
 	// Run database migrations
 	if err := database.RunMigrations(ctx, &cfg.Postgres, cfg.Migration.Path); err != nil {
 		slog.ErrorContext(ctx, "failed to run migrations", slog.String("error", err.Error()))
@@ -126,7 +151,7 @@ func main() {
 	// Credit gate for checkout (optional seam; nil disables).
 	commerceService.SetCreditChecker(paymentService)
 
-	healthHandler := health.New(db, nil, version)
+	healthHandler := health.New(db, nil, fmt.Sprintf("%d", version))
 	srv := server.New(cfg, healthHandler)
 
 	// Collect module handlers for the API dispatcher.

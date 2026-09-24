@@ -15,12 +15,13 @@ export default defineEventHandler(async (event) => {
   if (query.buyer_id) params.set('buyer_id', String(query.buyer_id))
 
   const qs = params.toString()
-  const path = `/admin/orders${qs ? `?${qs}` : ''}`
+  const path = `/api/v1/admin/orders${qs ? `?${qs}` : ''}`
 
   const result = await request({
     baseUrl: config.baseUrl,
     timeoutMs: config.timeoutMs,
     requestId,
+    accessToken: getCookie(event, 'atlas_admin_session') || undefined,
   }, 'GET', path)
 
   if (result.status >= 400) {

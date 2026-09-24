@@ -8,20 +8,9 @@ const skuInput = ref('')
 const qtyInput = ref(5)
 const adding = ref(false)
 
-const stats = ref({ products: 0, categories: 0, brands: 0, suppliers: 0 })
-
-async function loadStats() {
-  try {
-    const data = await $fetch<{ products: number; categories: number; brands: number; suppliers: number }>('/api/home/stats')
-    stats.value = data
-  } catch {
-    // Stats unavailable
-  }
-}
-
-onMounted(() => {
-  loadStats()
-})
+const { data: stats } = await useAsyncData(() => $fetch('/api/home/stats'), {
+  default: () => ({ products: 0, categories: 0, brands: 0, suppliers: 0 }),
+});
 
 async function stageItem() {
   if (!skuInput.value.trim()) return

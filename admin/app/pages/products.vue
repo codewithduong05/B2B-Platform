@@ -40,7 +40,7 @@
         </tr>
       </thead>
       <tbody>
-        <tr v-for="p in products" :key="p.id">
+        <tr v-for="p in products" :key="p.id" class="clickable-row" @click="navigateTo(`/products/${p.id}`)">
           <td class="font-mono text-xs">{{ p.code }}</td>
           <td>{{ p.name }}</td>
           <td>{{ p.category_name ?? '—' }}</td>
@@ -148,6 +148,10 @@ const totalCount = computed(() => data.value?.total ?? 0)
 
 .data-table tbody tr:hover {
   background: var(--surface-container-low);
+}
+
+.clickable-row {
+  cursor: pointer;
 }
 
 .badge {
